@@ -1,0 +1,6 @@
+{
+  "name": "Nexo Cantinas",
+  "description": "Sistema completo de gestão multi-cantinas e PDV ágil para escolas e estabelecimentos comerciais com controle de vendas a prazo, saques, abatimentos parciais, estoque, fluxo de caixa e relatórios.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
