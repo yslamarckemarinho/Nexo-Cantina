@@ -187,14 +187,20 @@ const CantinaAppContent: React.FC = () => {
   if (activeTab === 'portal_aluno' && !isAuthenticated) {
     return (
       <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
-        <header className="bg-slate-900 border-b border-slate-800 px-4 py-3 flex items-center justify-between">
-          <NexoLogo size={36} showText />
+        <header className="bg-slate-900 border-b border-slate-800 px-4 py-3 flex items-center justify-between sticky top-0 z-30 shadow-md">
+          <div className="flex items-center gap-2">
+            <NexoLogo size={34} showText />
+            <span className="hidden sm:inline-block px-2.5 py-0.5 bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 rounded-full text-[11px] font-bold">
+              Portal do Aluno & Responsável
+            </span>
+          </div>
 
           <button
             onClick={() => setActiveTab('pdv')}
-            className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-blue-400 font-bold text-xs rounded-xl border border-slate-700 transition"
+            className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-blue-400 hover:text-blue-300 font-bold text-xs rounded-xl border border-slate-700 transition flex items-center gap-1.5 shadow-sm"
           >
-            Área do Operador (Login)
+            <Store className="w-3.5 h-3.5" />
+            <span>Acesso Cantina (Login)</span>
           </button>
         </header>
 
@@ -234,8 +240,33 @@ const CantinaAppContent: React.FC = () => {
             </div>
           </div>
 
-          {/* Navigation Toggle between [Entrar] and [Cadastrar Cantina] */}
-          <div className="grid grid-cols-2 p-1 bg-slate-950 rounded-2xl border border-slate-800 text-xs font-bold">
+          {/* Primary Gateway Profile Selector: Aluno/Responsável VS Gestão/Operador */}
+          <div className="grid grid-cols-2 p-1.5 bg-slate-950 rounded-2xl border border-slate-800 text-xs font-bold gap-1">
+            <button
+              type="button"
+              id="gateway-tab-aluno"
+              onClick={() => setActiveTab('portal_aluno')}
+              className="py-3 px-2 rounded-xl transition flex flex-col sm:flex-row items-center justify-center gap-1.5 text-slate-300 hover:text-cyan-300 hover:bg-slate-900 border border-transparent hover:border-slate-800"
+            >
+              <GraduationCap className="w-4 h-4 text-cyan-400" />
+              <span>Sou Aluno / Pai</span>
+            </button>
+            <button
+              type="button"
+              id="gateway-tab-gestao"
+              onClick={() => {
+                setActiveTab('pdv');
+                setAuthMode('login');
+              }}
+              className="py-3 px-2 rounded-xl transition flex flex-col sm:flex-row items-center justify-center gap-1.5 bg-blue-600/90 text-white shadow-md border border-blue-500/30"
+            >
+              <Store className="w-4 h-4 text-white" />
+              <span>Acesso Cantina</span>
+            </button>
+          </div>
+
+          {/* Sub Navigation Toggle between [Entrar] and [Cadastrar Cantina] */}
+          <div className="grid grid-cols-2 p-1 bg-slate-950/60 rounded-xl border border-slate-800/80 text-xs font-semibold">
             <button
               type="button"
               id="auth-tab-login"
@@ -243,13 +274,13 @@ const CantinaAppContent: React.FC = () => {
                 setAuthMode('login');
                 setLoginError(null);
               }}
-              className={`py-2.5 rounded-xl transition ${
+              className={`py-2 rounded-lg transition ${
                 authMode === 'login'
-                  ? 'bg-blue-600 text-white shadow-md'
+                  ? 'bg-slate-800 text-white shadow-sm font-bold'
                   : 'text-slate-400 hover:text-white'
               }`}
             >
-              Acessar Minha Cantina
+              Entrar na Cantina
             </button>
             <button
               type="button"
@@ -258,13 +289,13 @@ const CantinaAppContent: React.FC = () => {
                 setAuthMode('register');
                 setRegError(null);
               }}
-              className={`py-2.5 rounded-xl transition ${
+              className={`py-2 rounded-lg transition ${
                 authMode === 'register'
-                  ? 'bg-gradient-to-r from-blue-600 to-cyan-500 text-slate-950 font-black shadow-md'
+                  ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 shadow-sm font-bold'
                   : 'text-slate-400 hover:text-white'
               }`}
             >
-              Cadastrar Nova Cantina
+              + Criar Nova Cantina
             </button>
           </div>
 

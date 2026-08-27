@@ -148,8 +148,8 @@ export const CantinaProvider: React.FC<{ children: React.ReactNode }> = ({ child
       // ignore
     }
     return {
-      isAuthenticated: true,
-      operatorName: 'admin',
+      isAuthenticated: false,
+      operatorName: '',
       isGoogleAuth: false,
       isMasterMode: false,
     };
