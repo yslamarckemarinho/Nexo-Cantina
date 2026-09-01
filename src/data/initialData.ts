@@ -20,6 +20,7 @@ export const INITIAL_CANTINAS: CantinaTenant[] = [
     schoolName: 'Nexo Cantinas',
     ownerName: 'Administrador Nexo',
     email: 'admin@nexocantinas.com',
+    institutionEmail: 'direcao.escola@gmail.com',
     loginUsername: 'admin',
     phone: '',
     password: '1234',

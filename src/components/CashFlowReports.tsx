@@ -90,15 +90,17 @@ export const CashFlowReports: React.FC = () => {
 
   // Breakdown by payment method
   const methodTotals = useMemo(() => {
-    const totals: Record<PaymentMethod, number> = {
+    const totals: Record<string, number> = {
       pix: 0,
       dinheiro: 0,
       cartao: 0,
+      a_prazo: 0,
       fiado: 0
     };
 
     filteredSales.forEach(s => {
-      totals[s.paymentMethod] = (totals[s.paymentMethod] || 0) + s.totalAmount;
+      const key = s.paymentMethod === 'fiado' ? 'a_prazo' : s.paymentMethod;
+      totals[key] = (totals[key] || 0) + s.totalAmount;
     });
 
     return totals;
@@ -109,7 +111,7 @@ export const CashFlowReports: React.FC = () => {
 
   const totalCashInflow = useMemo(() => {
     return shiftMovements
-      .filter(m => m.type === 'entrada' || m.type === 'suprimento' || m.type === 'quitacao_fiado')
+      .filter(m => m.type === 'entrada' || m.type === 'suprimento' || m.type === 'quitacao_fiado' || m.type === 'quitacao_prazo')
       .reduce((acc, m) => acc + m.amount, 0);
   }, [shiftMovements]);
 
@@ -123,7 +125,7 @@ export const CashFlowReports: React.FC = () => {
     const opening = currentShift?.openingBalance || 0;
     const cashSales = methodTotals.dinheiro || 0;
     const debtSettlements = shiftMovements
-      .filter(m => m.type === 'quitacao_fiado' && m.paymentMethod === 'dinheiro')
+      .filter(m => (m.type === 'quitacao_fiado' || m.type === 'quitacao_prazo') && m.paymentMethod === 'dinheiro')
       .reduce((acc, m) => acc + m.amount, 0);
     const suprimentos = shiftMovements
       .filter(m => m.type === 'suprimento')
@@ -139,19 +141,20 @@ export const CashFlowReports: React.FC = () => {
   const diagnosticInsights = useMemo(() => {
     const insights: { type: 'ok' | 'warning' | 'info' | 'success'; title: string; desc: string }[] = [];
 
-    // 1. Fiado proportion check
-    const fiadoShare = totalSalesDay > 0 ? (methodTotals.fiado / totalSalesDay) * 100 : 0;
-    if (fiadoShare > 40) {
+    // 1. A Prazo proportion check
+    const aPrazoTotal = methodTotals.a_prazo || 0;
+    const aPrazoShare = totalSalesDay > 0 ? (aPrazoTotal / totalSalesDay) * 100 : 0;
+    if (aPrazoShare > 40) {
       insights.push({
         type: 'warning',
-        title: 'Alta concentração de vendas no Fiado',
-        desc: `${fiadoShare.toFixed(1)}% das vendas de hoje foram lançadas no fiado (R$ ${methodTotals.fiado.toFixed(2)}). Recomendamos disparar lembretes via WhatsApp para os responsáveis.`
+        title: 'Alta concentração de vendas A Prazo',
+        desc: `${aPrazoShare.toFixed(1)}% das vendas de hoje foram lançadas a prazo (R$ ${aPrazoTotal.toFixed(2)}). Recomendamos enviar extratos aos responsáveis via WhatsApp.`
       });
     } else if (totalSalesDay > 0) {
       insights.push({
         type: 'success',
         title: 'Saúde de Liquidez Excelente',
-        desc: `${(100 - fiadoShare).toFixed(1)}% das vendas foram liquidadas à vista (PIX, Dinheiro e Cartão).`
+        desc: `${(100 - aPrazoShare).toFixed(1)}% das vendas foram liquidadas à vista (PIX, Dinheiro e Cartão).`
       });
     }
 
@@ -361,9 +364,9 @@ export const CashFlowReports: React.FC = () => {
                 <FileText className="w-4 h-4" />
               </div>
               <div>
-                <span className="text-[11px] font-bold text-slate-400 block">Fiado (Na Conta)</span>
+                <span className="text-[11px] font-bold text-slate-400 block">A Prazo (Na Conta)</span>
                 <span className="text-sm font-black text-amber-400 font-mono-num">
-                  R$ {methodTotals.fiado.toFixed(2)}
+                  R$ {(methodTotals.a_prazo || methodTotals.fiado || 0).toFixed(2)}
                 </span>
               </div>
             </div>
@@ -567,13 +570,13 @@ export const CashFlowReports: React.FC = () => {
                   <div className="col-span-2">
                     <div className="font-bold text-white">#{sale.receiptNumber}</div>
                     <span className={`text-[10px] font-bold uppercase px-1.5 py-0.2 rounded ${
-                      sale.paymentMethod === 'fiado' 
+                      sale.paymentMethod === 'fiado' || sale.paymentMethod === 'a_prazo'
                         ? 'bg-amber-500/20 text-amber-400' 
                         : sale.paymentMethod === 'pix'
                         ? 'bg-emerald-500/20 text-emerald-400'
                         : 'bg-blue-500/20 text-blue-400'
                     }`}>
-                      {sale.paymentMethod}
+                      {sale.paymentMethod === 'fiado' || sale.paymentMethod === 'a_prazo' ? 'A Prazo' : sale.paymentMethod}
                     </span>
                   </div>
 

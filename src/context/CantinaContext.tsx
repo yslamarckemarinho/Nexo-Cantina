@@ -20,30 +20,19 @@ interface CantinaContextType {
   activeCantinaId: string;
   isAuthenticated: boolean;
   operatorName: string;
-  isGoogleAuth: boolean;
   isMasterMode: boolean;
-  activeTab: 'pdv' | 'fiados' | 'estoque' | 'caixa' | 'backup' | 'master' | 'portal_aluno';
+  activeTab: 'pdv' | 'fiados' | 'estoque' | 'caixa' | 'backup' | 'master';
   securityLogs: AuditSecurityLog[];
+  masterPasswordConfigured: boolean;
   
   // Navigation & Auth
-  setActiveTab: (tab: 'pdv' | 'fiados' | 'estoque' | 'caixa' | 'backup' | 'master' | 'portal_aluno') => void;
+  setActiveTab: (tab: 'pdv' | 'fiados' | 'estoque' | 'caixa' | 'backup' | 'master') => void;
   smartLogin: (identifier: string, passwordOrPin: string) => { success: boolean; isMaster?: boolean; error?: string; cantina?: CantinaTenant };
   login: (subdomainOrId: string, pin: string, operator: string) => { success: boolean; error?: string };
-  loginWithGoogle: (googleEmail: string, googleName?: string) => { success: boolean; isNew?: boolean; error?: string; cantina?: CantinaTenant };
-  registerCantina: (data: {
-    name: string;
-    schoolName: string;
-    ownerName?: string;
-    email: string;
-    loginUsername?: string;
-    password: string;
-    phone?: string;
-    pixKey?: string;
-    pixReceiverName?: string;
-  }) => { success: boolean; error?: string; cantina?: CantinaTenant };
   logout: () => void;
   enterMasterControlRoom: (password: string) => { success: boolean; error?: string };
   exitMasterControlRoom: () => void;
+  updateMasterPassword: (currentPass: string, newPass: string) => { success: boolean; message: string };
   switchCantina: (cantinaId: string) => void;
   
   // PDV & Sales
@@ -52,7 +41,10 @@ interface CantinaContextType {
     items: SaleItem[];
     customerId?: string;
     customerName?: string;
+    amountReceived?: number;
+    changeGiven?: number;
   }) => Sale;
+  cancelSale: (saleId: string) => { success: boolean; message: string };
   
   // Fiados & Customers
   addCustomer: (data: {
@@ -61,10 +53,10 @@ interface CantinaContextType {
     studentName?: string;
     grade?: string;
     phone?: string;
-    dailySpendLimit?: number;
   }) => Customer;
   updateCustomer: (id: string, data: Partial<Customer>) => void;
   deleteCustomer: (id: string) => void;
+  deleteCustomerDebtItem: (customerId: string, debtItemId: string) => { success: boolean; message: string };
   addDebtToCustomer: (customerId: string, items: { name: string; quantity: number; unitPrice: number }[]) => void;
   addMoneyAdvanceToCustomer: (customerId: string, amount: number, note?: string) => void;
   settleCustomerDebtItem: (customerId: string, debtItemId: string, paymentMethod?: PaymentMethod) => void;
@@ -80,7 +72,24 @@ interface CantinaContextType {
   
   // Cash Flow
   openCashShift: (openingBalance: number) => void;
-  closeCurrentShift: () => void;
+  closeCurrentShift: (closingData?: {
+    closingBalanceActual?: number;
+    closingBalanceExpected?: number;
+    closingNotes?: string;
+    sentToEmailAddress?: string;
+    methodTotals?: {
+      pix: number;
+      dinheiro: number;
+      cartao: number;
+      a_prazo: number;
+      totalVendas: number;
+      totalLucro?: number;
+      totalSuprimentos: number;
+      totalSangrias: number;
+      salesCount: number;
+    };
+  }) => CashShift | null;
+  markShiftEmailSent: (shiftId: string, emailAddress: string) => void;
   addCashMovement: (type: 'entrada' | 'saida' | 'sangria' | 'suprimento', amount: number, description: string, paymentMethod?: PaymentMethod) => void;
   
   // Cantina Settings & Backup
@@ -91,24 +100,49 @@ interface CantinaContextType {
   resetSystemToZero: () => void;
   
   // Master Admin operations
-  createCantinaTenant: (data: { name: string; schoolName: string; subdomain: string; pin: string; pixKey: string; monthlyFee?: number }) => CantinaTenant;
+  createCantinaTenant: (data: { 
+    name: string; 
+    schoolName: string; 
+    subdomain?: string;
+    ownerName?: string;
+    email?: string;
+    loginUsername?: string;
+    phone?: string;
+    password?: string;
+    pin?: string; 
+    pixKey?: string; 
+    monthlyFee?: number;
+    monthlyFeeDueDay?: number;
+  }) => CantinaTenant;
   updateCantinaStatus: (cantinaId: string, status: 'active' | 'suspended' | 'maintenance') => void;
   deleteCantinaTenant: (cantinaId: string) => void;
   resetCantinaPassword: (cantinaId: string, newPasswordOrPin: string) => { success: boolean; message: string };
   updateCantinaFinancialPlan: (cantinaId: string, monthlyFee: number, dueDay?: number, status?: 'paid' | 'pending' | 'overdue') => void;
   impersonateCantina: (cantinaId: string) => void;
-  
-  // Student/Parent Portal Lookup
   lookupStudentByCode: (code: string) => { customer: Customer; cantina: CantinaTenant } | null;
 }
 
 const STORAGE_KEY_CANTINAS = 'nexo_cantinas_tenants_v2';
 const STORAGE_KEY_ACTIVE_ID = 'nexo_cantinas_active_id_v2';
 const STORAGE_KEY_AUTH = 'nexo_cantinas_auth_v2';
+const STORAGE_KEY_MASTER_PASS = 'nexo_cantinas_master_pass_v1';
+const DEFAULT_MASTER_PASS = 'r88282810r';
 
 const CantinaContext = createContext<CantinaContextType | undefined>(undefined);
 
 export const CantinaProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [masterPassword, setMasterPassword] = useState<string>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY_MASTER_PASS);
+      if (saved && saved.trim().length >= 3) {
+        return saved.trim();
+      }
+    } catch (e) {
+      // ignore
+    }
+    return DEFAULT_MASTER_PASS;
+  });
+
   const [cantinas, setCantinas] = useState<CantinaTenant[]>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY_CANTINAS);
@@ -136,13 +170,17 @@ export const CantinaProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [authData, setAuthData] = useState<{
     isAuthenticated: boolean;
     operatorName: string;
-    isGoogleAuth: boolean;
     isMasterMode: boolean;
   }>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY_AUTH);
       if (saved) {
-        return JSON.parse(saved);
+        const parsed = JSON.parse(saved);
+        return {
+          isAuthenticated: parsed.isAuthenticated || false,
+          operatorName: parsed.operatorName || '',
+          isMasterMode: parsed.isMasterMode || false,
+        };
       }
     } catch (e) {
       // ignore
@@ -150,12 +188,11 @@ export const CantinaProvider: React.FC<{ children: React.ReactNode }> = ({ child
     return {
       isAuthenticated: false,
       operatorName: '',
-      isGoogleAuth: false,
       isMasterMode: false,
     };
   });
 
-  const [activeTab, setActiveTab] = useState<'pdv' | 'fiados' | 'estoque' | 'caixa' | 'backup' | 'master' | 'portal_aluno'>('pdv');
+  const [activeTab, setActiveTab] = useState<'pdv' | 'fiados' | 'estoque' | 'caixa' | 'backup' | 'master'>('pdv');
   const [securityLogs, setSecurityLogs] = useState<AuditSecurityLog[]>(INITIAL_SECURITY_LOGS);
 
   // Sync to local storage
@@ -170,6 +207,10 @@ export const CantinaProvider: React.FC<{ children: React.ReactNode }> = ({ child
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY_AUTH, JSON.stringify(authData));
   }, [authData]);
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY_MASTER_PASS, masterPassword);
+  }, [masterPassword]);
 
   const activeCantina = cantinas.find(c => c.id === activeCantinaId) || cantinas[0] || null;
 
@@ -187,11 +228,10 @@ export const CantinaProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   const enterMasterControlRoom = (password: string) => {
-    if (password.trim() === 'r88282810r') {
+    if (password.trim() === masterPassword) {
       setAuthData({
         isAuthenticated: true,
         operatorName: 'Master Admin',
-        isGoogleAuth: false,
         isMasterMode: true,
       });
       setActiveTab('master');
@@ -202,15 +242,30 @@ export const CantinaProvider: React.FC<{ children: React.ReactNode }> = ({ child
     return { success: false, error: 'Senha Master incorreta.' };
   };
 
+  const updateMasterPassword = (currentPass: string, newPass: string) => {
+    if (currentPass.trim() !== masterPassword) {
+      logSecurityAction('Tentativa falha de alteração da Senha Master (senha atual incorreta)', 'Sala de Controle Global', 'bloqueado');
+      return { success: false, message: 'A senha master atual informada está incorreta.' };
+    }
+    const cleanNew = newPass.trim();
+    if (cleanNew.length < 4) {
+      return { success: false, message: 'A nova senha master deve ter no mínimo 4 caracteres.' };
+    }
+    setMasterPassword(cleanNew);
+    localStorage.setItem(STORAGE_KEY_MASTER_PASS, cleanNew);
+    logSecurityAction('Senha Master do Administrador alterada com sucesso', 'Sala de Controle Global', 'sucesso');
+    return { success: true, message: 'Senha Master atualizada com sucesso!' };
+  };
+
   const smartLogin = (identifier: string, passwordOrPin: string) => {
     const cleanId = identifier.trim().toLowerCase();
     const cleanPass = passwordOrPin.trim();
 
     // 1. Check if user is trying to login as Master Admin directly
-    if ((cleanId === 'master' || cleanId === 'admin' || cleanId === 'yslamarck@gmail.com') && cleanPass === 'r88282810r') {
+    if ((cleanId === 'master' || cleanId === 'admin' || cleanId === 'yslamarck@gmail.com') && cleanPass === masterPassword) {
       return enterMasterControlRoom(cleanPass);
     }
-    if (cleanPass === 'r88282810r') {
+    if (cleanPass === masterPassword && cleanId === '') {
       return enterMasterControlRoom(cleanPass);
     }
 
@@ -228,7 +283,7 @@ export const CantinaProvider: React.FC<{ children: React.ReactNode }> = ({ child
       logSecurityAction(`Tentativa de login com identificador inexistente: ${identifier}`, 'Sistema', 'alerta');
       return { 
         success: false, 
-        error: 'Nenhuma cantina encontrada com este e-mail ou usuário. Verifique seus dados ou crie seu cadastro.' 
+        error: 'Nenhuma cantina encontrada com este usuário ou identificador. O cadastro é realizado exclusivamente pelo Administrador Master.' 
       };
     }
 
@@ -249,7 +304,7 @@ export const CantinaProvider: React.FC<{ children: React.ReactNode }> = ({ child
       logSecurityAction(`Senha incorreta para a cantina: ${found.name}`, found.name, 'alerta');
       return { 
         success: false, 
-        error: 'Senha ou PIN incorreto para esta conta de cantina.' 
+        error: 'Senha de acesso incorreta. Caso tenha esquecido, solicite a redefinição ao Administrador Master.' 
       };
     }
 
@@ -258,7 +313,6 @@ export const CantinaProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setAuthData({
       isAuthenticated: true,
       operatorName: found.ownerName || found.operatorName || 'Administrador',
-      isGoogleAuth: false,
       isMasterMode: false,
     });
     setActiveTab('pdv');
@@ -266,133 +320,7 @@ export const CantinaProvider: React.FC<{ children: React.ReactNode }> = ({ child
     return { success: true, cantina: found };
   };
 
-  const registerCantina = (data: {
-    name: string;
-    schoolName: string;
-    ownerName?: string;
-    email: string;
-    loginUsername?: string;
-    password: string;
-    phone?: string;
-    pixKey?: string;
-    pixReceiverName?: string;
-  }) => {
-    const cleanEmail = data.email.trim().toLowerCase();
-    const cleanUsername = (data.loginUsername || data.email.split('@')[0] || data.name).trim().toLowerCase().replace(/[^a-z0-9]/g, '_');
-
-    // Check if email or username already exists
-    const existing = cantinas.find(c => 
-      (c.email && c.email.toLowerCase() === cleanEmail) ||
-      (c.loginUsername && c.loginUsername.toLowerCase() === cleanUsername)
-    );
-
-    if (existing) {
-      return { 
-        success: false, 
-        error: 'Já existe uma cantina cadastrada com este e-mail ou usuário. Por favor, faça login.' 
-      };
-    }
-
-    const cleanSubdomain = data.name.trim().toLowerCase().replace(/[^a-z0-9]/g, '_').substring(0, 20);
-    const newId = `cantina_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
-
-    const newTenant: CantinaTenant = {
-      id: newId,
-      subdomain: cleanSubdomain || `cantina_${Date.now()}`,
-      name: data.name.trim(),
-      schoolName: data.schoolName.trim(),
-      ownerName: data.ownerName?.trim() || 'Administrador',
-      email: cleanEmail,
-      loginUsername: cleanUsername,
-      password: data.password.trim(),
-      phone: data.phone?.trim() || '',
-      logoText: data.name.trim().substring(0, 8).toUpperCase(),
-      pixKey: data.pixKey?.trim() || '',
-      pixKeyType: 'Celular',
-      pixReceiverName: data.pixReceiverName?.trim() || data.name.trim(),
-      pin: data.password.trim(),
-      operatorName: data.ownerName?.trim() || 'Admin',
-      status: 'active',
-      products: DEFAULT_STARTER_PRODUCTS.map(p => ({ ...p, id: `p-${Date.now()}-${p.code}` })),
-      customers: [], // Isolamento completo do zero
-      sales: [],     // Isolamento completo do zero
-      shifts: [],
-      createdAt: new Date().toISOString(),
-    };
-
-    setCantinas(prev => [...prev, newTenant]);
-    setActiveCantinaId(newTenant.id);
-    setAuthData({
-      isAuthenticated: true,
-      operatorName: newTenant.ownerName || 'Admin',
-      isGoogleAuth: false,
-      isMasterMode: false,
-    });
-    setActiveTab('pdv');
-    logSecurityAction(`Nova cantina cadastrada e ativa: ${newTenant.name}`, newTenant.name, 'sucesso');
-    return { success: true, cantina: newTenant };
-  };
-
-  const loginWithGoogle = (googleEmail: string, googleName?: string) => {
-    const cleanEmail = googleEmail.trim().toLowerCase();
-
-    // Check if canteen exists with this Google email
-    let found = cantinas.find(
-      c => (c.email && c.email.toLowerCase() === cleanEmail) ||
-           (c.googleEmail && c.googleEmail.toLowerCase() === cleanEmail)
-    );
-
-    if (!found) {
-      // Auto-create an isolated workspace for this Google user
-      const defaultSchool = 'Escola Parceira';
-      const defaultName = googleName ? `Cantina de ${googleName.split(' ')[0]}` : 'Minha Cantina';
-      const newTenant: CantinaTenant = {
-        id: `cantina_g_${Date.now()}`,
-        subdomain: cleanEmail.split('@')[0].replace(/[^a-z0-9]/g, '_'),
-        name: defaultName,
-        schoolName: defaultSchool,
-        ownerName: googleName || 'Responsável',
-        email: cleanEmail,
-        googleEmail: cleanEmail,
-        loginUsername: cleanEmail.split('@')[0],
-        password: '',
-        phone: '',
-        logoText: 'CANTINA',
-        pixKey: '',
-        pixKeyType: 'E-mail',
-        pixReceiverName: googleName || defaultName,
-        pin: '1234',
-        operatorName: googleName || 'Operador Google',
-        status: 'active',
-        products: DEFAULT_STARTER_PRODUCTS.map(p => ({ ...p, id: `p-${Date.now()}-${p.code}` })),
-        customers: [],
-        sales: [],
-        shifts: [],
-        createdAt: new Date().toISOString(),
-      };
-
-      setCantinas(prev => [...prev, newTenant]);
-      found = newTenant;
-    }
-
-    if (found.status === 'suspended') {
-      logSecurityAction(`Tentativa de login Google em cantina suspensa: ${found.name}`, found.name, 'bloqueado');
-      return { success: false, error: 'Esta cantina está suspensa temporariamente na Sala de Controle.' };
-    }
-
-    setActiveCantinaId(found.id);
-    setAuthData({
-      isAuthenticated: true,
-      operatorName: googleName || found.ownerName || cleanEmail,
-      isGoogleAuth: true,
-      isMasterMode: false,
-    });
-    setActiveTab('pdv');
-    logSecurityAction(`Login efetuado via Google (${cleanEmail})`, found.name, 'sucesso');
-    return { success: true, cantina: found };
-  };
-
-  const login = (subdomainOrId: string, pin: string, operator: string) => {
+  const login = (subdomainOrId: string, pin: string, _operator: string) => {
     return smartLogin(subdomainOrId, pin);
   };
 
@@ -400,7 +328,6 @@ export const CantinaProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setAuthData({
       isAuthenticated: false,
       operatorName: '',
-      isGoogleAuth: false,
       isMasterMode: false,
     });
   };
@@ -424,6 +351,8 @@ export const CantinaProvider: React.FC<{ children: React.ReactNode }> = ({ child
     items: SaleItem[];
     customerId?: string;
     customerName?: string;
+    amountReceived?: number;
+    changeGiven?: number;
   }): Sale => {
     if (!activeCantina) throw new Error('Nenhuma cantina ativa.');
 
@@ -448,6 +377,8 @@ export const CantinaProvider: React.FC<{ children: React.ReactNode }> = ({ child
       totalCost,
       operatorName: authData.operatorName || activeCantina.operatorName || 'Operador',
       receiptNumber,
+      amountReceived: params.amountReceived,
+      changeGiven: params.changeGiven,
     };
 
     // Update active cantina state
@@ -467,9 +398,10 @@ export const CantinaProvider: React.FC<{ children: React.ReactNode }> = ({ child
         return p;
       });
 
-      // 2. If Fiado, append to customer debts
+      // 2. If Fiado / A Prazo, append to customer debts
       let updatedCustomers = c.customers;
-      if (params.paymentMethod === 'fiado' && params.customerId) {
+      const isPrazo = params.paymentMethod === 'fiado' || params.paymentMethod === 'a_prazo';
+      if (isPrazo && params.customerId) {
         updatedCustomers = c.customers.map(cust => {
           if (cust.id !== params.customerId) return cust;
 
@@ -495,7 +427,7 @@ export const CantinaProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
       // 3. Update shifts / cash movement if cash/pix/card
       const updatedShifts = [...c.shifts];
-      if (updatedShifts.length > 0 && updatedShifts[0].isOpen && params.paymentMethod !== 'fiado') {
+      if (updatedShifts.length > 0 && updatedShifts[0].isOpen && !isPrazo) {
         const currentShift = { ...updatedShifts[0] };
         const newMovement: CashMovement = {
           id: `mov-${Date.now()}`,
@@ -533,6 +465,76 @@ export const CantinaProvider: React.FC<{ children: React.ReactNode }> = ({ child
     return newSale;
   };
 
+  // Cancel or Reverse a completed sale
+  const cancelSale = (saleId: string): { success: boolean; message: string } => {
+    if (!activeCantina) return { success: false, message: 'Nenhuma cantina ativa.' };
+
+    const saleToCancel = activeCantina.sales.find(s => s.id === saleId);
+    if (!saleToCancel) {
+      return { success: false, message: 'Venda não encontrada.' };
+    }
+
+    setCantinas(prev => prev.map(c => {
+      if (c.id !== activeCantina.id) return c;
+
+      // 1. Restore product stock
+      const updatedProducts = c.products.map(p => {
+        const itemInSale = saleToCancel.items.find(i => i.productId === p.id || i.code === p.code || i.name.toLowerCase() === p.name.toLowerCase());
+        if (itemInSale) {
+          return {
+            ...p,
+            stock: p.stock + itemInSale.quantity,
+            totalSold: Math.max(0, (p.totalSold || 0) - itemInSale.quantity)
+          };
+        }
+        return p;
+      });
+
+      // 2. Remove debt items from customer if it was a prazo
+      const updatedCustomers = c.customers.map(cust => {
+        if (saleToCancel.customerId && cust.id === saleToCancel.customerId) {
+          return {
+            ...cust,
+            items: cust.items.filter(item => item.saleId !== saleId)
+          };
+        }
+        return cust;
+      });
+
+      // 3. Reverse cash shift movement if it was cash/pix/card
+      const updatedShifts = [...c.shifts];
+      if (updatedShifts.length > 0 && updatedShifts[0].isOpen && saleToCancel.paymentMethod !== 'fiado' && saleToCancel.paymentMethod !== 'a_prazo') {
+        const currentShift = { ...updatedShifts[0] };
+        const reversalMovement: CashMovement = {
+          id: `mov-rev-${Date.now()}`,
+          timestamp: new Date().toISOString(),
+          formattedTime: new Date().toLocaleTimeString('pt-BR'),
+          type: 'saida',
+          amount: saleToCancel.totalAmount,
+          description: `Estorno de Venda #${saleToCancel.receiptNumber} (${saleToCancel.paymentMethod.toUpperCase()})`,
+          operatorName: authData.operatorName,
+          paymentMethod: saleToCancel.paymentMethod
+        };
+        currentShift.movements = [reversalMovement, ...currentShift.movements];
+        updatedShifts[0] = currentShift;
+      }
+
+      // 4. Remove sale from sales list
+      const updatedSales = c.sales.filter(s => s.id !== saleId);
+
+      return {
+        ...c,
+        products: updatedProducts,
+        customers: updatedCustomers,
+        sales: updatedSales,
+        shifts: updatedShifts
+      };
+    }));
+
+    logSecurityAction(`Venda #${saleToCancel.receiptNumber} cancelada/estornada pela operadora`, activeCantina.name, 'sucesso');
+    return { success: true, message: `Venda #${saleToCancel.receiptNumber} estornada com sucesso e estoque reajustado!` };
+  };
+
   // Add customer
   const addCustomer = (data: {
     name: string;
@@ -540,7 +542,6 @@ export const CantinaProvider: React.FC<{ children: React.ReactNode }> = ({ child
     studentName?: string;
     grade?: string;
     phone?: string;
-    dailySpendLimit?: number;
   }): Customer => {
     if (!activeCantina) throw new Error('Nenhuma cantina ativa.');
 
@@ -555,7 +556,6 @@ export const CantinaProvider: React.FC<{ children: React.ReactNode }> = ({ child
       grade: data.grade,
       phone: data.phone?.replace(/\D/g, ''),
       consultationCode: randomCode,
-      dailySpendLimit: data.dailySpendLimit || 20.00,
       createdAt: new Date().toISOString(),
       items: []
     };
@@ -591,6 +591,69 @@ export const CantinaProvider: React.FC<{ children: React.ReactNode }> = ({ child
         customers: c.customers.filter(cust => cust.id !== id)
       };
     }));
+  };
+
+  // Delete/Reverse an individual item annotated wrongly on a customer's debt
+  const deleteCustomerDebtItem = (customerId: string, debtItemId: string): { success: boolean; message: string } => {
+    if (!activeCantina) return { success: false, message: 'Nenhuma cantina ativa.' };
+
+    const targetCustomer = activeCantina.customers.find(c => c.id === customerId);
+    if (!targetCustomer) return { success: false, message: 'Cliente não encontrado.' };
+
+    const itemToDelete = targetCustomer.items.find(i => i.id === debtItemId);
+    if (!itemToDelete) return { success: false, message: 'Lançamento não encontrado.' };
+
+    setCantinas(prev => prev.map(c => {
+      if (c.id !== activeCantina.id) return c;
+
+      // 1. If item corresponds to a product in inventory, restore stock
+      const updatedProducts = c.products.map(p => {
+        if (p.name.toLowerCase() === itemToDelete.name.toLowerCase()) {
+          return {
+            ...p,
+            stock: p.stock + itemToDelete.quantity,
+            totalSold: Math.max(0, (p.totalSold || 0) - itemToDelete.quantity)
+          };
+        }
+        return p;
+      });
+
+      // 2. Remove the debt item from the customer
+      const updatedCustomers = c.customers.map(cust => {
+        if (cust.id !== customerId) return cust;
+        return {
+          ...cust,
+          items: cust.items.filter(i => i.id !== debtItemId)
+        };
+      });
+
+      // 3. If item was part of a registered Sale, update or clean that sale
+      let updatedSales = c.sales;
+      if (itemToDelete.saleId) {
+        updatedSales = c.sales.map(s => {
+          if (s.id !== itemToDelete.saleId) return s;
+          const remainingItems = s.items.filter(i => i.name !== itemToDelete.name);
+          const newTotalAmount = remainingItems.reduce((acc, curr) => acc + curr.totalPrice, 0);
+          const newTotalCost = remainingItems.reduce((acc, curr) => acc + (curr.costPrice || 0) * curr.quantity, 0);
+          return {
+            ...s,
+            items: remainingItems,
+            totalAmount: newTotalAmount,
+            totalCost: newTotalCost
+          };
+        }).filter(s => s.items.length > 0);
+      }
+
+      return {
+        ...c,
+        products: updatedProducts,
+        customers: updatedCustomers,
+        sales: updatedSales
+      };
+    }));
+
+    logSecurityAction(`Lançamento errado "${itemToDelete.name}" (R$ ${itemToDelete.totalPrice.toFixed(2)}) apagado da conta de ${targetCustomer.name}`, activeCantina.name, 'sucesso');
+    return { success: true, message: `Lançamento de "${itemToDelete.name}" removido com sucesso e saldo corrigido!` };
   };
 
   const addDebtToCustomer = (customerId: string, items: { name: string; quantity: number; unitPrice: number }[]) => {
@@ -1024,26 +1087,83 @@ export const CantinaProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }));
   };
 
-  const closeCurrentShift = () => {
+  const closeCurrentShift = (closingData?: {
+    closingBalanceActual?: number;
+    closingBalanceExpected?: number;
+    closingNotes?: string;
+    sentToEmailAddress?: string;
+    methodTotals?: {
+      pix: number;
+      dinheiro: number;
+      cartao: number;
+      a_prazo: number;
+      totalVendas: number;
+      totalLucro?: number;
+      totalSuprimentos: number;
+      totalSangrias: number;
+      salesCount: number;
+    };
+  }): CashShift | null => {
+    if (!activeCantina) return null;
+    const now = new Date();
+    let closedShiftObj: CashShift | null = null;
+
+    setCantinas(prev => prev.map(c => {
+      if (c.id !== activeCantina.id) return c;
+      const updatedShifts = c.shifts.map((shift, idx) => {
+        if (idx === 0 && shift.isOpen) {
+          const expected = closingData?.closingBalanceExpected !== undefined 
+            ? closingData.closingBalanceExpected 
+            : shift.openingBalance;
+          const actual = closingData?.closingBalanceActual !== undefined 
+            ? closingData.closingBalanceActual 
+            : expected;
+          const diff = Math.round((actual - expected) * 100) / 100;
+
+          const updated: CashShift = {
+            ...shift,
+            isOpen: false,
+            closedAt: now.toISOString(),
+            closedByOperator: authData.operatorName || 'Operador',
+            closingBalanceExpected: expected,
+            closingBalanceActual: actual,
+            cashDifference: diff,
+            closingNotes: closingData?.closingNotes,
+            sentToEmailAddress: closingData?.sentToEmailAddress,
+            sentToEmailAt: closingData?.sentToEmailAddress ? now.toISOString() : undefined,
+            methodTotals: closingData?.methodTotals
+          };
+          closedShiftObj = updated;
+          return updated;
+        }
+        return shift;
+      });
+
+      return {
+        ...c,
+        shifts: updatedShifts
+      };
+    }));
+
+    logSecurityAction(`Fechamento de Caixa do Turno realizado por ${authData.operatorName || 'Operador'}`, activeCantina.name, 'sucesso');
+    return closedShiftObj;
+  };
+
+  const markShiftEmailSent = (shiftId: string, emailAddress: string) => {
     if (!activeCantina) return;
     const now = new Date();
-
     setCantinas(prev => prev.map(c => {
       if (c.id !== activeCantina.id) return c;
       return {
         ...c,
-        shifts: c.shifts.map((shift, idx) => {
-          if (idx === 0 && shift.isOpen) {
-            return {
-              ...shift,
-              isOpen: false,
-              closedAt: now.toISOString()
-            };
-          }
-          return shift;
-        })
+        shifts: c.shifts.map(s => s.id === shiftId ? {
+          ...s,
+          sentToEmailAddress: emailAddress,
+          sentToEmailAt: now.toISOString()
+        } : s)
       };
     }));
+    logSecurityAction(`Relatório de Fechamento de Caixa enviado para o Gmail/E-mail: ${emailAddress}`, activeCantina.name, 'sucesso');
   };
 
   const addCashMovement = (type: 'entrada' | 'saida' | 'sangria' | 'suprimento', amount: number, description: string, paymentMethod?: PaymentMethod) => {
@@ -1144,22 +1264,45 @@ export const CantinaProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   // Master Tenant Operations
-  const createCantinaTenant = (data: { name: string; schoolName: string; subdomain: string; pin: string; pixKey: string; monthlyFee?: number }): CantinaTenant => {
-    const newId = `cantina_${data.subdomain.toLowerCase().replace(/[^a-z0-9]/g, '_')}`;
+  const createCantinaTenant = (data: { 
+    name: string; 
+    schoolName: string; 
+    subdomain?: string;
+    ownerName?: string;
+    email?: string;
+    loginUsername?: string;
+    phone?: string;
+    password?: string;
+    pin?: string; 
+    pixKey?: string; 
+    monthlyFee?: number;
+    monthlyFeeDueDay?: number;
+  }): CantinaTenant => {
+    const rawSub = (data.subdomain || data.name).toLowerCase().replace(/[^a-z0-9]/g, '_');
+    const cleanSubdomain = rawSub.replace(/^_+|_+$/g, '') || `cantina_${Date.now()}`;
+    const newId = `cantina_${cleanSubdomain}`;
+    const pass = data.password?.trim() || data.pin?.trim() || '1234';
+    const emailLogin = data.email?.trim() || `${cleanSubdomain}@nexocantinas.com`;
+    const userLogin = data.loginUsername?.trim() || cleanSubdomain;
+
     const newTenant: CantinaTenant = {
       id: newId,
-      subdomain: data.subdomain.toLowerCase().replace(/[^a-z0-9]/g, ''),
-      name: data.name,
-      schoolName: data.schoolName,
-      logoText: data.schoolName.substring(0, 10).toUpperCase(),
-      pixKey: data.pixKey,
+      subdomain: cleanSubdomain,
+      name: data.name.trim(),
+      schoolName: data.schoolName.trim() || 'Nexo Cantinas',
+      ownerName: data.ownerName?.trim() || 'Administrador',
+      email: emailLogin,
+      loginUsername: userLogin,
+      phone: data.phone?.trim() || '',
+      logoText: (data.schoolName || data.name).substring(0, 10).toUpperCase(),
+      pixKey: data.pixKey?.trim() || '',
       pixKeyType: 'Celular',
-      pixReceiverName: data.name,
-      pin: data.pin || '1234',
-      password: data.pin || '1234',
-      operatorName: 'admin',
-      monthlyFee: data.monthlyFee || 149.00,
-      monthlyFeeDueDay: 10,
+      pixReceiverName: data.ownerName?.trim() || data.name.trim(),
+      pin: pass,
+      password: pass,
+      operatorName: data.ownerName?.trim() || 'admin',
+      monthlyFee: data.monthlyFee !== undefined ? data.monthlyFee : 149.00,
+      monthlyFeeDueDay: data.monthlyFeeDueDay || 10,
       monthlyFeeStatus: 'paid',
       status: 'active',
       products: DEFAULT_STARTER_PRODUCTS,
@@ -1170,7 +1313,7 @@ export const CantinaProvider: React.FC<{ children: React.ReactNode }> = ({ child
     };
 
     setCantinas(prev => [...prev, newTenant]);
-    logSecurityAction(`Nova cantina provisionada no sistema: ${data.name}`, data.name, 'sucesso');
+    logSecurityAction(`Nova cantina provisionada pelo Master: ${data.name} (Login: ${userLogin})`, data.name, 'sucesso');
     return newTenant;
   };
 
@@ -1253,23 +1396,24 @@ export const CantinaProvider: React.FC<{ children: React.ReactNode }> = ({ child
         activeCantinaId,
         isAuthenticated: authData.isAuthenticated,
         operatorName: authData.operatorName,
-        isGoogleAuth: authData.isGoogleAuth,
         isMasterMode: authData.isMasterMode,
         activeTab,
         securityLogs,
+        masterPasswordConfigured: masterPassword !== DEFAULT_MASTER_PASS,
         setActiveTab,
         smartLogin,
         login,
-        loginWithGoogle,
-        registerCantina,
         logout,
         enterMasterControlRoom,
         exitMasterControlRoom,
+        updateMasterPassword,
         switchCantina,
         processSale,
+        cancelSale,
         addCustomer,
         updateCustomer,
         deleteCustomer,
+        deleteCustomerDebtItem,
         addDebtToCustomer,
         addMoneyAdvanceToCustomer,
         settleCustomerDebtItem,
@@ -1282,6 +1426,7 @@ export const CantinaProvider: React.FC<{ children: React.ReactNode }> = ({ child
         loadStarterProductsToActiveCantina,
         openCashShift,
         closeCurrentShift,
+        markShiftEmailSent,
         addCashMovement,
         updateCantinaSettings,
         exportBackupJSON,

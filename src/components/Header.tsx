@@ -295,19 +295,6 @@ export const Header: React.FC = () => {
                 <Download className="w-4 h-4" />
                 <span>Configurações & Backup</span>
               </button>
-
-              <button
-                id="tab-portal-aluno"
-                onClick={() => setActiveTab('portal_aluno')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl transition whitespace-nowrap ${
-                  activeTab === 'portal_aluno'
-                    ? 'bg-cyan-500 text-slate-950 font-bold shadow-sm'
-                    : 'text-cyan-400 hover:text-cyan-300 hover:bg-cyan-950/40'
-                }`}
-              >
-                <Search className="w-4 h-4" />
-                <span>Portal do Aluno</span>
-              </button>
             </>
           )}
         </nav>

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Sale, CantinaTenant } from '../types';
 import { NexoLogo } from './NexoLogo';
+import { printSaleReceipt } from '../utils/printReceipt';
 import { 
   Printer, 
   Copy, 
@@ -69,7 +70,7 @@ VALOR TOTAL:                R$ ${sale.totalAmount.toFixed(2)}
   };
 
   const handlePrint = () => {
-    window.print();
+    printSaleReceipt(sale, cantina);
   };
 
   return (
@@ -180,10 +181,25 @@ VALOR TOTAL:                R$ ${sale.totalAmount.toFixed(2)}
               </div>
               <div className="flex justify-between items-baseline text-sm pt-1 border-t border-slate-800">
                 <span className="font-bold text-white uppercase tracking-wider">VALOR TOTAL:</span>
-                <span className="text-lg font-extrabold text-blue-400">
+                <span className="text-lg font-extrabold text-blue-400 font-mono-num">
                   R$ {sale.totalAmount.toFixed(2)}
                 </span>
               </div>
+
+              {sale.amountReceived !== undefined && (
+                <div className="pt-2 mt-1 border-t border-dashed border-slate-800 space-y-1 text-xs font-mono-num">
+                  <div className="flex justify-between text-slate-300">
+                    <span>VALOR RECEBIDO (DINHEIRO):</span>
+                    <span className="font-bold text-white">R$ {sale.amountReceived.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between items-center text-emerald-400 font-bold">
+                    <span>TROCO DEVOLVIDO:</span>
+                    <span className="text-sm font-extrabold bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-800/60">
+                      R$ {(sale.changeGiven || 0).toFixed(2)}
+                    </span>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Footer greeting */}

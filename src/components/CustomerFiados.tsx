@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { useCantina } from '../context/CantinaContext';
 import { Customer, DebtItem, PaymentMethod } from '../types';
 import { WhatsAppModal } from './WhatsAppModal';
+import { printCustomerStatement } from '../utils/printReceipt';
 import { 
   Users, 
   Search, 
@@ -26,7 +27,9 @@ import {
   Receipt,
   MinusCircle,
   ArrowDownCircle,
-  HandCoins
+  HandCoins,
+  ShoppingCart,
+  ArrowRight
 } from 'lucide-react';
 
 export const CustomerFiados: React.FC = () => {
@@ -35,11 +38,12 @@ export const CustomerFiados: React.FC = () => {
     addCustomer, 
     updateCustomer, 
     deleteCustomer, 
-    addDebtToCustomer, 
+    deleteCustomerDebtItem,
     addMoneyAdvanceToCustomer, 
     settleCustomerDebtItem, 
     abateCustomerDebtPartial,
-    settleCustomerAllDebts 
+    settleCustomerAllDebts,
+    setActiveTab
   } = useCantina();
 
   if (!activeCantina) return null;
@@ -56,6 +60,7 @@ export const CustomerFiados: React.FC = () => {
   // Modal states
   const [showNewCustomerModal, setShowNewCustomerModal] = useState(false);
   const [customerToWhatsApp, setCustomerToWhatsApp] = useState<Customer | null>(null);
+  const [customerToDelete, setCustomerToDelete] = useState<Customer | null>(null);
   
   // Settle all confirmation modal
   const [showSettleModal, setShowSettleModal] = useState(false);
@@ -71,10 +76,11 @@ export const CustomerFiados: React.FC = () => {
   const [partialMethod, setPartialMethod] = useState<PaymentMethod>('dinheiro');
   const [partialNote, setPartialNote] = useState('');
 
-  // Custom cash advance modal (pegou dinheiro / adiantamento / saque com valor livre)
-  const [showCustomCashAdvanceModal, setShowCustomCashAdvanceModal] = useState(false);
-  const [customAdvanceAmount, setCustomAdvanceAmount] = useState('');
-  const [customAdvanceNote, setCustomAdvanceNote] = useState('');
+  // Loan confirmation modal (empréstimo de dinheiro com confirmação prévia obrigatória)
+  const [loanConfirmModal, setLoanConfirmModal] = useState<{
+    amount: string;
+    note: string;
+  } | null>(null);
 
   // New Customer Form State
   const [nameInput, setNameInput] = useState('');
@@ -82,13 +88,6 @@ export const CustomerFiados: React.FC = () => {
   const [studentInput, setStudentInput] = useState('');
   const [gradeInput, setGradeInput] = useState('3º ano');
   const [phoneInput, setPhoneInput] = useState('');
-  const [limitInput, setLimitInput] = useState('20.00');
-
-  // Inside Drawer Quick Codes input
-  const [drawerCodeInput, setDrawerCodeInput] = useState('');
-  const [showManualItemModal, setShowManualItemModal] = useState(false);
-  const [manualItemName, setManualItemName] = useState('');
-  const [manualItemPrice, setManualItemPrice] = useState('');
 
   // Keep selectedCustomer in sync with activeCantina updates
   const currentSelectedCustomer = useMemo(() => {
@@ -137,75 +136,26 @@ export const CustomerFiados: React.FC = () => {
     }
   }, [activeCantina.customers, searchTerm, sortBy]);
 
-  // Handle drawer code launching
-  const handleLaunchDrawerCodes = (e: React.FormEvent) => {
+  // Loan money advance submit
+  const handleLoanConfirmSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!currentSelectedCustomer || !drawerCodeInput.trim()) return;
-
-    const tokens = drawerCodeInput.trim().split(/\s+/);
-    const itemsToAdd: { name: string; quantity: number; unitPrice: number }[] = [];
-
-    tokens.forEach(token => {
-      let qty = 1;
-      let codeNum: number;
-      if (token.toLowerCase().includes('x')) {
-        const parts = token.toLowerCase().split('x');
-        qty = parseInt(parts[0], 10) || 1;
-        codeNum = parseInt(parts[1], 10);
-      } else {
-        codeNum = parseInt(token, 10);
-      }
-
-      if (!isNaN(codeNum)) {
-        const prod = activeCantina.products.find(p => p.code === codeNum);
-        if (prod) {
-          itemsToAdd.push({
-            name: prod.name,
-            quantity: qty,
-            unitPrice: prod.salePrice
-          });
-        }
-      }
-    });
-
-    if (itemsToAdd.length > 0) {
-      addDebtToCustomer(currentSelectedCustomer.id, itemsToAdd);
-      setDrawerCodeInput('');
-    }
-  };
-
-  const handleQuickAddSingleProduct = (productName: string, unitPrice: number) => {
-    if (!currentSelectedCustomer) return;
-    addDebtToCustomer(currentSelectedCustomer.id, [
-      { name: productName, quantity: 1, unitPrice }
-    ]);
-  };
-
-  const handleAddManualItemSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!currentSelectedCustomer || !manualItemName.trim()) return;
-    const price = parseFloat(manualItemPrice.replace(',', '.'));
-    if (isNaN(price) || price <= 0) return;
-
-    addDebtToCustomer(currentSelectedCustomer.id, [
-      { name: manualItemName.trim(), quantity: 1, unitPrice: price }
-    ]);
-    setManualItemName('');
-    setManualItemPrice('');
-    setShowManualItemModal(false);
-  };
-
-  // Custom cash advance submission
-  const handleCustomCashAdvanceSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!currentSelectedCustomer) return;
-    const amount = parseFloat(customAdvanceAmount.replace(',', '.'));
+    if (!currentSelectedCustomer || !loanConfirmModal) return;
+    const amount = parseFloat(loanConfirmModal.amount.replace(',', '.'));
     if (isNaN(amount) || amount <= 0) return;
 
-    addMoneyAdvanceToCustomer(currentSelectedCustomer.id, amount, customAdvanceNote.trim() || undefined);
-    setCustomAdvanceAmount('');
-    setCustomAdvanceNote('');
-    setShowCustomCashAdvanceModal(false);
+    addMoneyAdvanceToCustomer(currentSelectedCustomer.id, amount, loanConfirmModal.note.trim() || undefined);
+    setLoanConfirmModal(null);
+  };
+
+  // Confirm customer deletion
+  const handleConfirmDeleteCustomer = () => {
+    if (!customerToDelete) return;
+    const deletingId = customerToDelete.id;
+    deleteCustomer(deletingId);
+    if (selectedCustomer?.id === deletingId) {
+      setSelectedCustomer(null);
+    }
+    setCustomerToDelete(null);
   };
 
   // Partial abatement submission
@@ -245,8 +195,7 @@ export const CustomerFiados: React.FC = () => {
       parentName: parentInput.trim(),
       studentName: studentInput.trim(),
       grade: gradeInput.trim(),
-      phone: phoneInput.trim(),
-      dailySpendLimit: parseFloat(limitInput) || 20.00
+      phone: phoneInput.trim()
     });
 
     setSelectedCustomer(created);
@@ -440,6 +389,17 @@ export const CustomerFiados: React.FC = () => {
                         <MessageSquare className="w-4 h-4" />
                       </button>
                     )}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setCustomerToDelete(customer);
+                      }}
+                      className="p-2 bg-slate-800 hover:bg-rose-950/60 text-slate-400 hover:text-rose-400 rounded-xl border border-slate-700 hover:border-rose-800/60 transition"
+                      title="Excluir cadastro do cliente"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
                     <div className="p-2 text-slate-400">
                       <ChevronRight className="w-4 h-4" />
                     </div>
@@ -559,7 +519,18 @@ export const CustomerFiados: React.FC = () => {
                 </div>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5 sm:gap-2">
+                <button
+                  type="button"
+                  id="fiados-print-statement-header-btn"
+                  onClick={() => printCustomerStatement(currentSelectedCustomer, activeCantina)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white rounded-lg text-xs font-semibold border border-slate-700 transition shadow-sm"
+                  title="Imprimir nota / extrato desta conta"
+                >
+                  <Printer className="w-3.5 h-3.5 text-slate-400" />
+                  <span className="hidden sm:inline">Imprimir Nota</span>
+                </button>
+
                 {currentSelectedCustomer.items.some(i => !i.paid) && (
                   <button
                     onClick={() => setCustomerToWhatsApp(currentSelectedCustomer)}
@@ -569,6 +540,16 @@ export const CustomerFiados: React.FC = () => {
                     <span>Cobrar WhatsApp</span>
                   </button>
                 )}
+
+                <button
+                  type="button"
+                  onClick={() => setCustomerToDelete(currentSelectedCustomer)}
+                  className="p-1.5 bg-rose-950/40 hover:bg-rose-900 text-rose-300 rounded-lg border border-rose-800/50 transition"
+                  title="Excluir este cliente"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+
                 <button
                   onClick={() => setSelectedCustomer(null)}
                   className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-700 transition"
@@ -580,73 +561,53 @@ export const CustomerFiados: React.FC = () => {
 
             {/* Body */}
             <div className="p-4 space-y-4 overflow-y-auto flex-1">
-              {/* 1. Anotação Instantânea por Código inside profile */}
-              <div className="bg-slate-950/90 border border-slate-800 rounded-xl p-3.5 space-y-2.5">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-amber-400 flex items-center gap-1.5 uppercase tracking-wider">
-                    <Sparkles className="w-4 h-4" />
-                    Anotação Instantânea por Código (A Prazo)
-                  </span>
-                  <span className="text-[10px] text-slate-400 font-mono-num">
-                    Produtos ({activeCantina.products.length})
-                  </span>
+              {/* Informação e Redirecionamento para o PDV */}
+              <div className="bg-gradient-to-r from-amber-500/10 via-amber-500/5 to-slate-900 border border-amber-500/30 rounded-xl p-3.5 flex flex-col sm:flex-row items-center justify-between gap-3 shadow-inner">
+                <div className="flex items-center gap-2.5">
+                  <div className="p-2 bg-amber-500/20 text-amber-400 rounded-lg shrink-0">
+                    <ShoppingCart className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h5 className="text-xs font-bold text-white">Lançar Novas Compras a Prazo</h5>
+                    <p className="text-[11px] text-slate-400">Todas as compras e vendas de produtos são registradas na Frente de Caixa (PDV).</p>
+                  </div>
                 </div>
-
-                <form onSubmit={handleLaunchDrawerCodes} className="flex gap-2">
-                  <input
-                    type="text"
-                    value={drawerCodeInput}
-                    onChange={(e) => setDrawerCodeInput(e.target.value)}
-                    placeholder="Digite os códigos (ex: 1 2 para Salgado + Pippos)"
-                    className="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500 font-mono-num"
-                  />
-                  <button
-                    type="submit"
-                    className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs rounded-xl transition shadow-sm"
-                  >
-                    + Lançar
-                  </button>
-                </form>
-
-                {/* Quick product chips */}
-                <div className="flex flex-wrap gap-1.5 pt-1">
-                  {activeCantina.products.slice(0, 13).map(p => (
-                    <button
-                      key={p.id}
-                      type="button"
-                      onClick={() => handleQuickAddSingleProduct(p.name, p.salePrice)}
-                      className="px-2 py-1 bg-slate-900 hover:bg-slate-800 border border-slate-700 hover:border-amber-500/50 rounded-lg text-[11px] text-slate-200 font-mono-num transition flex items-center gap-1"
-                    >
-                      <span className="text-amber-400 font-bold">#{p.code}</span>
-                      <span>{p.name}</span>
-                      <span className="text-slate-400 text-[10px]">({p.salePrice.toFixed(2)})</span>
-                    </button>
-                  ))}
-                </div>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('pdv')}
+                  className="w-full sm:w-auto px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs rounded-xl flex items-center justify-center gap-1.5 transition shadow active:scale-95 whitespace-nowrap"
+                >
+                  <span>Ir para o PDV</span>
+                  <ArrowRight className="w-4 h-4" />
+                </button>
               </div>
 
-              {/* 2. Pegou Dinheiro (Saque / Empréstimo / Adiantamento) */}
+              {/* Pegou Dinheiro (Saque / Empréstimo / Adiantamento) - Com Confirmação Obrigatória */}
               <div className="bg-emerald-950/30 border border-emerald-800/60 rounded-xl p-3.5 space-y-2.5">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-400 uppercase tracking-wider">
                     <HandCoins className="w-4 h-4" />
-                    <span>Pegou Dinheiro (Saque / Empréstimo a Prazo)</span>
+                    <span>Empréstimo em Dinheiro (Pegar Dinheiro na Conta)</span>
                   </div>
                   <button
                     type="button"
-                    onClick={() => setShowCustomCashAdvanceModal(true)}
+                    onClick={() => setLoanConfirmModal({ amount: '', note: '' })}
                     className="text-[10px] text-emerald-400 hover:text-emerald-300 font-bold underline"
                   >
                     + Outro Valor / Motivo
                   </button>
                 </div>
 
+                <p className="text-[11px] text-slate-400">
+                  Clique no valor para abrir a confirmação do empréstimo antes de lançar na conta do aluno:
+                </p>
+
                 <div className="grid grid-cols-4 sm:grid-cols-7 gap-1.5">
                   {[2, 5, 10, 15, 20, 30, 50].map(val => (
                     <button
                       key={val}
                       type="button"
-                      onClick={() => addMoneyAdvanceToCustomer(currentSelectedCustomer.id, val)}
+                      onClick={() => setLoanConfirmModal({ amount: String(val), note: '' })}
                       className="py-2 bg-emerald-900/40 hover:bg-emerald-800/80 border border-emerald-700/60 text-emerald-300 font-bold text-xs rounded-lg transition active:scale-95 text-center font-mono-num shadow-sm"
                     >
                       + R$ {val}.00
@@ -655,17 +616,7 @@ export const CustomerFiados: React.FC = () => {
                 </div>
               </div>
 
-              {/* Add custom unlisted item button */}
-              <button
-                type="button"
-                onClick={() => setShowManualItemModal(true)}
-                className="w-full py-2 bg-slate-950/60 hover:bg-slate-800 border border-dashed border-slate-700 text-slate-300 text-xs font-semibold rounded-xl flex items-center justify-center gap-1.5 transition"
-              >
-                <Plus className="w-3.5 h-3.5 text-amber-400" />
-                <span>+ Lançar outro valor avulso na conta a prazo</span>
-              </button>
-
-              {/* 3. EXTRATO CRONOLÓGICO DETALHADO with item settlement */}
+              {/* EXTRATO CRONOLÓGICO DETALHADO with item settlement & deletion */}
               <div className="space-y-2 pt-2">
                 <div className="flex items-center justify-between">
                   <h4 className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
@@ -685,12 +636,12 @@ export const CustomerFiados: React.FC = () => {
                   <div className="bg-slate-950 border border-slate-800 rounded-xl overflow-hidden shadow-inner">
                     <div className="grid grid-cols-12 text-[10px] uppercase font-bold text-slate-400 p-2.5 border-b border-slate-800 bg-slate-900/60">
                       <span className="col-span-3">Data & Hora</span>
-                      <span className="col-span-5">Descrição / Quantidade</span>
+                      <span className="col-span-4">Descrição / Quantidade</span>
                       <span className="col-span-2 text-right">Valor</span>
-                      <span className="col-span-2 text-right">Ação</span>
+                      <span className="col-span-3 text-right">Ações</span>
                     </div>
 
-                    <div className="divide-y divide-slate-800/60 max-h-60 overflow-y-auto">
+                    <div className="divide-y divide-slate-800/60 max-h-64 overflow-y-auto">
                       {currentSelectedCustomer.items.map((item) => (
                         <div 
                           key={item.id} 
@@ -703,7 +654,7 @@ export const CustomerFiados: React.FC = () => {
                             <div className="text-[10px] text-slate-500">{item.formattedTime}</div>
                           </div>
 
-                          <div className="col-span-5">
+                          <div className="col-span-4">
                             <div className={`font-semibold ${item.isMoneyAdvance ? 'text-emerald-400 flex items-center gap-1' : 'text-white'}`}>
                               {item.isMoneyAdvance && <Banknote className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />}
                               <span>{item.name}</span>
@@ -717,20 +668,34 @@ export const CustomerFiados: React.FC = () => {
                             R$ {item.totalPrice.toFixed(2)}
                           </div>
 
-                          <div className="col-span-2 text-right">
+                          <div className="col-span-3 flex items-center justify-end gap-1">
                             {item.paid ? (
                               <span className="inline-flex items-center gap-1 text-[10px] text-emerald-400 font-semibold px-2 py-0.5 bg-emerald-950/40 rounded border border-emerald-800/40">
                                 <Check className="w-3 h-3" /> Pago
                               </span>
                             ) : (
-                              <button
-                                type="button"
-                                onClick={() => setItemToSettle(item)}
-                                className="px-2 py-1 bg-emerald-600/20 hover:bg-emerald-600 text-emerald-400 hover:text-white rounded text-[11px] font-bold border border-emerald-600/40 transition active:scale-95"
-                                title="Dar baixa ou pagar este item específico"
-                              >
-                                ✓ Pagar
-                              </button>
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => setItemToSettle(item)}
+                                  className="px-2 py-1 bg-emerald-600/20 hover:bg-emerald-600 text-emerald-400 hover:text-white rounded text-[11px] font-bold border border-emerald-600/40 transition active:scale-95"
+                                  title="Dar baixa ou pagar este item específico"
+                                >
+                                  ✓ Pagar
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (confirm(`Deseja apagar o lançamento "${item.name}" (R$ ${item.totalPrice.toFixed(2)}) da conta de ${currentSelectedCustomer.name}?`)) {
+                                      deleteCustomerDebtItem(currentSelectedCustomer.id, item.id);
+                                    }
+                                  }}
+                                  className="p-1 bg-rose-950/40 hover:bg-rose-900 text-rose-300 rounded border border-rose-800/40 transition active:scale-95"
+                                  title="Apagar este item lançado errado"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </>
                             )}
                           </div>
                         </div>
@@ -753,21 +718,25 @@ export const CustomerFiados: React.FC = () => {
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
-                {currentSelectedCustomer.items.filter(i => !i.paid).length === 0 && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (confirm(`Deseja remover o cadastro de "${currentSelectedCustomer.name}"?`)) {
-                        deleteCustomer(currentSelectedCustomer.id);
-                        setSelectedCustomer(null);
-                      }
-                    }}
-                    className="p-2.5 bg-rose-950/40 hover:bg-rose-900 text-rose-300 rounded-xl border border-rose-800/50 transition"
-                    title="Excluir cadastro zerado"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                )}
+                <button
+                  type="button"
+                  id="fiados-print-statement-footer-btn"
+                  onClick={() => printCustomerStatement(currentSelectedCustomer, activeCantina)}
+                  className="flex items-center gap-1.5 px-3 py-2 bg-slate-700 hover:bg-slate-600 text-slate-200 hover:text-white font-bold text-xs rounded-xl border border-slate-600 transition shadow"
+                  title="Imprimir nota com comprovante da conta"
+                >
+                  <Printer className="w-4 h-4 text-amber-400" />
+                  <span>Imprimir Nota</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setCustomerToDelete(currentSelectedCustomer)}
+                  className="p-2 bg-rose-950/40 hover:bg-rose-900 text-rose-300 rounded-xl border border-rose-800/50 transition"
+                  title="Excluir este cliente do sistema"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
 
                 {/* Abater Parte da Dívida Button */}
                 <button
@@ -775,7 +744,7 @@ export const CustomerFiados: React.FC = () => {
                   id="fiados-abate-partial-btn"
                   disabled={currentSelectedCustomer.items.filter(i => !i.paid).length === 0}
                   onClick={() => setShowPartialModal(true)}
-                  className="flex items-center gap-1.5 px-3.5 py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-30 text-white font-bold text-xs rounded-xl shadow transition"
+                  className="flex items-center gap-1.5 px-3.5 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-30 text-white font-bold text-xs rounded-xl shadow transition"
                 >
                   <MinusCircle className="w-4 h-4" />
                   <span>Abater Parte</span>
@@ -787,7 +756,7 @@ export const CustomerFiados: React.FC = () => {
                   id="fiados-settle-all-btn"
                   disabled={currentSelectedCustomer.items.filter(i => !i.paid).length === 0}
                   onClick={() => setShowSettleModal(true)}
-                  className="flex items-center gap-1.5 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-30 text-white font-bold text-xs rounded-xl shadow-lg transition"
+                  className="flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-30 text-white font-bold text-xs rounded-xl shadow-lg transition"
                 >
                   <Check className="w-4 h-4" />
                   <span>Quitar Tudo</span>
@@ -949,64 +918,156 @@ export const CustomerFiados: React.FC = () => {
         </div>
       )}
 
-      {/* 3. Modal Pegou Dinheiro com Valor Livre & Motivo */}
-      {showCustomCashAdvanceModal && currentSelectedCustomer && (
+      {/* 3. Modal de Confirmação de Empréstimo / Pegou Dinheiro */}
+      {loanConfirmModal && currentSelectedCustomer && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-slate-900 border border-slate-700 rounded-2xl p-5 max-w-sm w-full shadow-2xl space-y-3">
-            <h3 className="text-sm font-bold text-white flex items-center gap-2">
-              <HandCoins className="w-5 h-5 text-emerald-400" />
-              <span>Pegou Dinheiro / Saque em Conta</span>
-            </h3>
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl p-5 max-w-md w-full shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                <HandCoins className="w-5 h-5 text-emerald-400" />
+                <span>Confirmar Empréstimo em Dinheiro</span>
+              </h3>
+              <button
+                type="button"
+                onClick={() => setLoanConfirmModal(null)}
+                className="text-slate-400 hover:text-white p-1 rounded-lg"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
 
-            <p className="text-xs text-slate-300">
-              Lançar valor retirado em dinheiro para <strong className="text-white">{currentSelectedCustomer.name}</strong>.
-            </p>
+            <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-3 text-xs space-y-1">
+              <div className="flex items-center gap-1.5 font-bold text-amber-300">
+                <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
+                <span>Confirmação Prévia Obrigatória</span>
+              </div>
+              <p className="text-slate-300 leading-relaxed text-[11px]">
+                O dinheiro <strong className="text-white">NÃO</strong> é lançado automaticamente. Verifique os dados abaixo antes de confirmar o empréstimo para a conta do aluno.
+              </p>
+            </div>
 
-            <form onSubmit={handleCustomCashAdvanceSubmit} className="space-y-3">
+            <form onSubmit={handleLoanConfirmSubmit} className="space-y-3.5">
               <div>
-                <label className="block text-xs text-slate-300 mb-1">
-                  Valor Retirado (R$):
+                <label className="block text-xs font-semibold text-slate-300 mb-1">
+                  Cliente / Aluno Beneficiado:
                 </label>
-                <input
-                  type="text"
-                  value={customAdvanceAmount}
-                  onChange={(e) => setCustomAdvanceAmount(e.target.value)}
-                  placeholder="Ex: 25.00"
-                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-emerald-400 font-bold font-mono-num focus:outline-none focus:border-emerald-500"
-                  autoFocus
-                  required
-                />
+                <div className="w-full bg-slate-950/80 border border-slate-800 rounded-lg px-3 py-2 text-xs font-bold text-white flex items-center justify-between">
+                  <span>{currentSelectedCustomer.name}</span>
+                  <span className="text-[10px] text-slate-400 font-mono-num font-normal">
+                    Código: {currentSelectedCustomer.consultationCode}
+                  </span>
+                </div>
               </div>
 
               <div>
-                <label className="block text-xs text-slate-300 mb-1">
-                  Motivo / Observação:
+                <label className="block text-xs font-semibold text-slate-300 mb-1">
+                  Valor a Emprestar (R$):
                 </label>
                 <input
                   type="text"
-                  value={customAdvanceNote}
-                  onChange={(e) => setCustomAdvanceNote(e.target.value)}
-                  placeholder="Ex: Pegou p/ transporte, xerox ou feira"
+                  value={loanConfirmModal.amount}
+                  onChange={(e) => setLoanConfirmModal({ ...loanConfirmModal, amount: e.target.value })}
+                  placeholder="Ex: 10.00"
+                  className="w-full bg-slate-950 border border-emerald-600/70 rounded-lg px-3 py-2.5 text-base text-emerald-400 font-extrabold font-mono-num focus:outline-none focus:border-emerald-400"
+                  autoFocus
+                  required
+                />
+                <div className="flex flex-wrap gap-1.5 mt-2">
+                  {[2, 5, 10, 15, 20, 30, 50].map(val => (
+                    <button
+                      key={val}
+                      type="button"
+                      onClick={() => setLoanConfirmModal({ ...loanConfirmModal, amount: String(val) })}
+                      className="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] font-mono-num font-semibold rounded border border-slate-700 transition"
+                    >
+                      R$ {val}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">
+                  Motivo / Observação (Opcional):
+                </label>
+                <input
+                  type="text"
+                  value={loanConfirmModal.note}
+                  onChange={(e) => setLoanConfirmModal({ ...loanConfirmModal, note: e.target.value })}
+                  placeholder="Ex: Pegou para condução / xerox / almoço"
                   className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
                 />
               </div>
 
-              <div className="flex justify-end gap-2 pt-2">
+              <div className="flex justify-end gap-2 pt-2 border-t border-slate-800">
                 <button
                   type="button"
-                  onClick={() => setShowCustomCashAdvanceModal(false)}
-                  className="px-3 py-1.5 text-xs text-slate-400 hover:text-white"
+                  onClick={() => setLoanConfirmModal(null)}
+                  className="px-3.5 py-2 text-xs text-slate-400 hover:text-white rounded-lg transition"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl transition shadow-md"
+                  className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs rounded-xl transition shadow-lg flex items-center gap-1.5 active:scale-95"
                 >
-                  Lançar Saque
+                  <Check className="w-4 h-4" />
+                  <span>Confirmar Empréstimo</span>
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Confirmação de Exclusão de Cliente */}
+      {customerToDelete && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-slate-900 border border-rose-900/50 rounded-2xl p-5 max-w-sm w-full shadow-2xl space-y-3 animate-in fade-in zoom-in-95 duration-150">
+            <h3 className="text-sm font-bold text-white flex items-center gap-2">
+              <AlertCircle className="w-5 h-5 text-rose-400" />
+              <span>Excluir Cadastro do Cliente</span>
+            </h3>
+
+            <p className="text-xs text-slate-300 leading-relaxed">
+              Tem certeza que deseja apagar o cadastro de <strong className="text-white">{customerToDelete.name}</strong>?
+            </p>
+
+            {(() => {
+              const pendingDebt = customerToDelete.items.filter(i => !i.paid).reduce((acc, curr) => acc + curr.totalPrice, 0);
+              if (pendingDebt > 0) {
+                return (
+                  <div className="bg-rose-950/40 border border-rose-800/60 rounded-xl p-3 text-xs text-rose-300 space-y-1">
+                    <p className="font-bold">Atenção:</p>
+                    <p>Este cliente possui um saldo devedor de <strong className="font-mono-num text-rose-200">R$ {pendingDebt.toFixed(2)}</strong> com {customerToDelete.items.filter(i => !i.paid).length} lançamento(s) em aberto.</p>
+                  </div>
+                );
+              }
+              return (
+                <p className="text-xs text-slate-400">
+                  A conta está em dia (sem débitos pendentes).
+                </p>
+              );
+            })()}
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-800">
+              <button
+                type="button"
+                onClick={() => setCustomerToDelete(null)}
+                className="px-3.5 py-2 text-xs text-slate-400 hover:text-white rounded-lg transition"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                id="fiados-confirm-delete-customer-btn"
+                onClick={handleConfirmDeleteCustomer}
+                className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs rounded-xl transition shadow-md flex items-center gap-1.5 active:scale-95"
+              >
+                <Trash2 className="w-4 h-4" />
+                <span>Sim, Excluir Cliente</span>
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -1063,61 +1124,6 @@ export const CustomerFiados: React.FC = () => {
                 Confirmar e Dar Baixa
               </button>
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* Manual Item Launch Modal */}
-      {showManualItemModal && (
-        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-slate-900 border border-slate-700 rounded-2xl p-5 max-w-sm w-full shadow-2xl">
-            <h3 className="text-sm font-bold text-white mb-3 flex items-center gap-2">
-              <Plus className="w-4 h-4 text-amber-400" />
-              <span>Lançamento Manual Avulso a Prazo</span>
-            </h3>
-
-            <form onSubmit={handleAddManualItemSubmit} className="space-y-3">
-              <div>
-                <label className="block text-xs text-slate-300 mb-1">Descrição do Consumo:</label>
-                <input
-                  type="text"
-                  value={manualItemName}
-                  onChange={(e) => setManualItemName(e.target.value)}
-                  placeholder="Ex: Almoço / Lanche Especial"
-                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500"
-                  autoFocus
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs text-slate-300 mb-1">Valor (R$):</label>
-                <input
-                  type="text"
-                  value={manualItemPrice}
-                  onChange={(e) => setManualItemPrice(e.target.value)}
-                  placeholder="Ex: 12.00"
-                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500 font-mono-num"
-                  required
-                />
-              </div>
-
-              <div className="flex justify-end gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setShowManualItemModal(false)}
-                  className="px-3 py-1.5 text-xs text-slate-400 hover:text-white"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs rounded-lg transition"
-                >
-                  Lançar na Conta
-                </button>
-              </div>
-            </form>
           </div>
         </div>
       )}
@@ -1191,17 +1197,6 @@ export const CustomerFiados: React.FC = () => {
                     className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500"
                   />
                 </div>
-              </div>
-
-              <div>
-                <label className="block text-xs text-slate-300 mb-1">Limite de Gastos Diário (R$):</label>
-                <input
-                  type="text"
-                  value={limitInput}
-                  onChange={(e) => setLimitInput(e.target.value)}
-                  placeholder="Ex: 20.00"
-                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500 font-mono-num"
-                />
               </div>
 
               <div className="flex justify-end gap-2 pt-2">

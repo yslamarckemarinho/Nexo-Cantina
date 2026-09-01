@@ -27,7 +27,10 @@ import {
   Sliders,
   LogOut,
   Mail,
-  User
+  User,
+  Share2,
+  Copy,
+  Phone
 } from 'lucide-react';
 
 export const MasterControlRoom: React.FC = () => {
@@ -41,10 +44,18 @@ export const MasterControlRoom: React.FC = () => {
     resetCantinaPassword,
     updateCantinaFinancialPlan,
     impersonateCantina,
+    updateMasterPassword,
     securityLogs, 
     exitMasterControlRoom,
     resetSystemToZero 
   } = useCantina();
+
+  // Master Password change modal state
+  const [showMasterPassModal, setShowMasterPassModal] = useState(false);
+  const [currentMasterPassInput, setCurrentMasterPassInput] = useState('');
+  const [newMasterPassInput, setNewMasterPassInput] = useState('');
+  const [confirmMasterPassInput, setConfirmMasterPassInput] = useState('');
+  const [masterPassFeedback, setMasterPassFeedback] = useState<{ isError: boolean; text: string } | null>(null);
 
   // Create new cantina modal state
   const [showNewCantinaModal, setShowNewCantinaModal] = useState(false);
@@ -52,10 +63,13 @@ export const MasterControlRoom: React.FC = () => {
   const [newCantinaName, setNewCantinaName] = useState('');
   const [newOwnerName, setNewOwnerName] = useState('');
   const [newEmail, setNewEmail] = useState('');
-  const [newSubdomain, setNewSubdomain] = useState('');
-  const [newPin, setNewPin] = useState('1234');
+  const [newLoginUsername, setNewLoginUsername] = useState('');
+  const [newPhone, setNewPhone] = useState('');
+  const [newPassword, setNewPassword] = useState('1234');
   const [newPixKey, setNewPixKey] = useState('');
   const [newMonthlyFee, setNewMonthlyFee] = useState('149.00');
+  const [newDueDay, setNewDueDay] = useState('10');
+  const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
 
   // Password reset modal state
   const [resetModalCantina, setResetModalCantina] = useState<any | null>(null);
@@ -97,26 +111,45 @@ export const MasterControlRoom: React.FC = () => {
     e.preventDefault();
     if (!newCantinaName.trim()) return;
 
-    const cleanSubdomain = (newSubdomain.trim() || newCantinaName.trim().toLowerCase().replace(/[^a-z0-9]/g, '_'));
+    const rawSub = (newLoginUsername.trim() || newCantinaName.trim()).toLowerCase().replace(/[^a-z0-9]/g, '_');
+    const cleanSubdomain = rawSub.replace(/^_+|_+$/g, '') || `cantina_${Date.now()}`;
 
     createCantinaTenant({
       schoolName: newSchoolName.trim() || 'Nexo Cantinas',
       name: newCantinaName.trim(),
+      ownerName: newOwnerName.trim() || 'Administrador',
+      email: newEmail.trim() || `${cleanSubdomain}@nexocantinas.com`,
+      loginUsername: (newLoginUsername.trim() || cleanSubdomain).toLowerCase(),
+      phone: newPhone.trim(),
       subdomain: cleanSubdomain,
-      pin: newPin.trim() || '1234',
+      password: newPassword.trim() || '1234',
+      pin: newPassword.trim() || '1234',
       pixKey: newPixKey.trim(),
-      monthlyFee: parseFloat(newMonthlyFee) || 149.00
+      monthlyFee: parseFloat(newMonthlyFee) || 149.00,
+      monthlyFeeDueDay: parseInt(newDueDay, 10) || 10
     });
 
     setNewSchoolName('');
     setNewCantinaName('');
     setNewOwnerName('');
     setNewEmail('');
-    setNewSubdomain('');
-    setNewPin('1234');
+    setNewLoginUsername('');
+    setNewPhone('');
+    setNewPassword('1234');
     setNewPixKey('');
     setNewMonthlyFee('149.00');
+    setNewDueDay('10');
     setShowNewCantinaModal(false);
+  };
+
+  const handleCopyCredentials = (cantina: any) => {
+    const login = cantina.email || cantina.loginUsername || cantina.subdomain;
+    const pass = cantina.password || cantina.pin || '1234';
+    const text = `🍽️ *ACESSO AO SISTEMA NEXO CANTINAS*\n\n🏫 *Unidade:* ${cantina.name} (${cantina.schoolName})\n👤 *Usuário / Login:* ${login}\n🔑 *Senha de Acesso:* ${pass}\n\nEntre no sistema e comece suas vendas!`;
+
+    navigator.clipboard.writeText(text);
+    setCopyFeedback(`Dados de "${cantina.name}" copiados para a área de transferência!`);
+    setTimeout(() => setCopyFeedback(null), 3500);
   };
 
   const handleResetPasswordSubmit = (e: React.FormEvent) => {
@@ -147,6 +180,35 @@ export const MasterControlRoom: React.FC = () => {
     setPlanModalCantina(null);
   };
 
+  const handleUpdateMasterPasswordSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setMasterPassFeedback(null);
+
+    if (newMasterPassInput !== confirmMasterPassInput) {
+      setMasterPassFeedback({ isError: true, text: 'A confirmação da nova senha não confere.' });
+      return;
+    }
+
+    if (newMasterPassInput.length < 4) {
+      setMasterPassFeedback({ isError: true, text: 'A nova senha master deve ter pelo menos 4 caracteres.' });
+      return;
+    }
+
+    const res = updateMasterPassword(currentMasterPassInput, newMasterPassInput);
+    if (res.success) {
+      setMasterPassFeedback({ isError: false, text: 'Senha Master atualizada com sucesso!' });
+      setTimeout(() => {
+        setShowMasterPassModal(false);
+        setCurrentMasterPassInput('');
+        setNewMasterPassInput('');
+        setConfirmMasterPassInput('');
+        setMasterPassFeedback(null);
+      }, 1400);
+    } else {
+      setMasterPassFeedback({ isError: true, text: res.error || 'Senha master atual incorreta.' });
+    }
+  };
+
   return (
     <div className="max-w-7xl mx-auto px-2 sm:px-4 py-5 space-y-6">
       {/* Master Top Executive Header */}
@@ -168,7 +230,23 @@ export const MasterControlRoom: React.FC = () => {
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              setShowMasterPassModal(true);
+              setCurrentMasterPassInput('');
+              setNewMasterPassInput('');
+              setConfirmMasterPassInput('');
+              setMasterPassFeedback(null);
+            }}
+            className="flex items-center gap-1.5 px-3.5 py-2.5 bg-slate-800/90 hover:bg-slate-700 text-amber-300 font-bold text-xs rounded-xl border border-amber-500/40 hover:border-amber-400 transition"
+            title="Alterar sua Senha Master de Administrador"
+          >
+            <KeyRound className="w-4 h-4 text-amber-400" />
+            <span>Alterar Senha Master</span>
+          </button>
+
           <button
             type="button"
             onClick={() => setShowNewCantinaModal(true)}
@@ -250,6 +328,23 @@ export const MasterControlRoom: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Copy Notification Toast */}
+      {copyFeedback && (
+        <div className="bg-emerald-900/60 border border-emerald-500/80 text-emerald-200 px-4 py-3 rounded-2xl flex items-center justify-between text-xs font-bold animate-fadeIn shadow-lg">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+            <span>{copyFeedback}</span>
+          </div>
+          <button 
+            type="button" 
+            onClick={() => setCopyFeedback(null)}
+            className="text-emerald-400 hover:text-white"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
 
       {/* Tenancy Executive Management Section */}
       <div className="space-y-4">
@@ -393,7 +488,7 @@ export const MasterControlRoom: React.FC = () => {
 
                 {/* Master Actions Toolbar */}
                 <div className="flex items-center justify-between pt-2 border-t border-slate-800/80 flex-wrap gap-2">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     {/* Impersonate / Support Mode Button */}
                     <button
                       type="button"
@@ -403,6 +498,17 @@ export const MasterControlRoom: React.FC = () => {
                     >
                       <ExternalLink className="w-3.5 h-3.5" />
                       <span>Entrar no PDV</span>
+                    </button>
+
+                    {/* Copy Credentials Button */}
+                    <button
+                      type="button"
+                      onClick={() => handleCopyCredentials(cantina)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-950/70 hover:bg-emerald-900 border border-emerald-700/60 text-emerald-300 rounded-xl text-xs font-bold transition shadow"
+                      title="Copiar dados de acesso (usuário e senha) para enviar ao responsável"
+                    >
+                      <Share2 className="w-3.5 h-3.5" />
+                      <span>Copiar Acesso</span>
                     </button>
 
                     {/* Reset Password Button */}
@@ -685,16 +791,21 @@ export const MasterControlRoom: React.FC = () => {
               </button>
             </div>
 
-            <form onSubmit={handleCreateCantinaSubmit} className="space-y-3.5">
+            <form onSubmit={handleCreateCantinaSubmit} className="space-y-3.5 max-h-[80vh] overflow-y-auto pr-1">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-semibold text-slate-300 mb-1">
-                    Nome da Cantina:
+                    Nome da Cantina: <span className="text-rose-400">*</span>
                   </label>
                   <input
                     type="text"
                     value={newCantinaName}
-                    onChange={(e) => setNewCantinaName(e.target.value)}
+                    onChange={(e) => {
+                      setNewCantinaName(e.target.value);
+                      if (!newLoginUsername) {
+                        setNewLoginUsername(e.target.value.toLowerCase().replace(/[^a-z0-9]/g, ''));
+                      }
+                    }}
                     placeholder="Ex: Cantina Saber & Sabor"
                     className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-cyan-400"
                     required
@@ -703,7 +814,7 @@ export const MasterControlRoom: React.FC = () => {
 
                 <div>
                   <label className="block text-xs font-semibold text-slate-300 mb-1">
-                    Escola / Instituição:
+                    Escola / Instituição: <span className="text-rose-400">*</span>
                   </label>
                   <input
                     type="text"
@@ -719,18 +830,69 @@ export const MasterControlRoom: React.FC = () => {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-semibold text-slate-300 mb-1">
-                    Senha / PIN de Acesso:
+                    Nome do Responsável / Operador:
                   </label>
                   <input
                     type="text"
-                    value={newPin}
-                    onChange={(e) => setNewPin(e.target.value)}
-                    placeholder="1234"
-                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-cyan-400 font-mono-num"
-                    required
+                    value={newOwnerName}
+                    onChange={(e) => setNewOwnerName(e.target.value)}
+                    placeholder="Ex: Carlos Silva"
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-cyan-400"
                   />
                 </div>
 
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">
+                    WhatsApp / Telefone:
+                  </label>
+                  <input
+                    type="text"
+                    value={newPhone}
+                    onChange={(e) => setNewPhone(e.target.value)}
+                    placeholder="Ex: 83999998888"
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-cyan-400 font-mono-num"
+                  />
+                </div>
+              </div>
+
+              <div className="p-3 bg-slate-950/80 rounded-2xl border border-indigo-500/30 space-y-3">
+                <div className="text-[11px] font-bold text-cyan-400 uppercase tracking-wide flex items-center gap-1.5">
+                  <KeyRound className="w-3.5 h-3.5" />
+                  <span>Credenciais de Acesso da Cantina</span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-300 mb-1">
+                      Usuário / E-mail de Login: <span className="text-rose-400">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={newLoginUsername}
+                      onChange={(e) => setNewLoginUsername(e.target.value)}
+                      placeholder="Ex: cantinasaber ou carlos@gmail.com"
+                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-cyan-400 font-mono-num"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-300 mb-1">
+                      Senha de Acesso: <span className="text-rose-400">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      placeholder="Ex: 1234 ou senha forte"
+                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-cyan-400 font-mono-num font-bold"
+                      required
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-semibold text-slate-300 mb-1">
                     Mensalidade SaaS (R$):
@@ -744,17 +906,32 @@ export const MasterControlRoom: React.FC = () => {
                     className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-cyan-400 font-mono-num"
                   />
                 </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">
+                    Dia de Vencimento:
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="31"
+                    value={newDueDay}
+                    onChange={(e) => setNewDueDay(e.target.value)}
+                    placeholder="10"
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-cyan-400 font-mono-num"
+                  />
+                </div>
               </div>
 
               <div>
                 <label className="block text-xs font-semibold text-slate-300 mb-1">
-                  Chave PIX da Cantina:
+                  Chave PIX da Cantina (Opcional):
                 </label>
                 <input
                   type="text"
                   value={newPixKey}
                   onChange={(e) => setNewPixKey(e.target.value)}
-                  placeholder="Chave para recebimentos no PDV"
+                  placeholder="Chave para recebimentos de PIX no PDV"
                   className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-cyan-400 font-mono-num"
                 />
               </div>
@@ -771,7 +948,108 @@ export const MasterControlRoom: React.FC = () => {
                   type="submit"
                   className="px-4 py-2 bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-blue-500 hover:to-cyan-400 text-slate-950 font-black text-xs rounded-xl transition shadow"
                 >
-                  Criar e Ativar Cantina
+                  Cadastrar e Liberar Cantina
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Update Master Administrator Password */}
+      {showMasterPassModal && (
+        <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in duration-150">
+          <div className="bg-slate-900 border border-amber-500/60 rounded-3xl p-6 max-w-md w-full shadow-2xl space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="w-5 h-5 text-amber-400" />
+                <h3 className="text-base font-black text-white">Alterar Senha Master</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowMasterPassModal(false)}
+                className="text-slate-400 hover:text-white"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-300">
+              Esta é a senha suprema de administrador da plataforma Nexo. Com ela você cadastra cantinas, redefine senhas e gerencia o sistema.
+            </p>
+
+            <form onSubmit={handleUpdateMasterPasswordSubmit} className="space-y-3.5">
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">
+                  Senha Master Atual: <span className="text-rose-400">*</span>
+                </label>
+                <input
+                  type="password"
+                  value={currentMasterPassInput}
+                  onChange={(e) => setCurrentMasterPassInput(e.target.value)}
+                  placeholder="Sua senha master atual"
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs sm:text-sm text-white focus:outline-none focus:border-amber-400 font-mono"
+                  required
+                  autoFocus
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">
+                  Nova Senha Master: <span className="text-rose-400">*</span>
+                </label>
+                <input
+                  type="password"
+                  value={newMasterPassInput}
+                  onChange={(e) => setNewMasterPassInput(e.target.value)}
+                  placeholder="Crie sua nova senha segura"
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs sm:text-sm text-white focus:outline-none focus:border-amber-400 font-mono"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">
+                  Confirmar Nova Senha Master: <span className="text-rose-400">*</span>
+                </label>
+                <input
+                  type="password"
+                  value={confirmMasterPassInput}
+                  onChange={(e) => setConfirmMasterPassInput(e.target.value)}
+                  placeholder="Repita a nova senha"
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs sm:text-sm text-white focus:outline-none focus:border-amber-400 font-mono"
+                  required
+                />
+              </div>
+
+              {masterPassFeedback && (
+                <div className={`p-3 rounded-xl text-xs flex items-center gap-2 ${
+                  masterPassFeedback.isError 
+                    ? 'bg-rose-950/60 border border-rose-800 text-rose-300' 
+                    : 'bg-emerald-950/60 border border-emerald-800 text-emerald-300'
+                }`}>
+                  {masterPassFeedback.isError ? (
+                    <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+                  ) : (
+                    <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
+                  )}
+                  <span>{masterPassFeedback.text}</span>
+                </div>
+              )}
+
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowMasterPassModal(false)}
+                  className="px-3.5 py-2 text-xs text-slate-400 hover:text-white"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-xs rounded-xl transition shadow"
+                >
+                  Salvar Nova Senha Master
                 </button>
               </div>
             </form>

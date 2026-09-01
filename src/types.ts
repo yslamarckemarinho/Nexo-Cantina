@@ -1,4 +1,4 @@
-export type PaymentMethod = 'fiado' | 'pix' | 'dinheiro' | 'cartao';
+export type PaymentMethod = 'a_prazo' | 'fiado' | 'pix' | 'dinheiro' | 'cartao';
 
 export type ProductCategory = 
   | 'Lanches'
@@ -50,6 +50,8 @@ export interface Sale {
   totalCost: number;
   operatorName: string;
   receiptNumber: string;
+  amountReceived?: number;
+  changeGiven?: number;
 }
 
 export interface DebtItem {
@@ -76,7 +78,6 @@ export interface Customer {
   grade?: string;
   phone?: string;
   consultationCode: string; // Unique code (e.g. "NEXO-301")
-  dailySpendLimit?: number;
   notes?: string;
   items: DebtItem[];
   createdAt: string;
@@ -86,7 +87,7 @@ export interface CashMovement {
   id: string;
   timestamp: string;
   formattedTime: string;
-  type: 'entrada' | 'saida' | 'abertura' | 'sangria' | 'suprimento' | 'quitacao_fiado';
+  type: 'entrada' | 'saida' | 'abertura' | 'sangria' | 'suprimento' | 'quitacao_prazo' | 'quitacao_fiado';
   amount: number;
   description: string;
   operatorName: string;
@@ -101,6 +102,24 @@ export interface CashShift {
   openingBalance: number;
   isOpen: boolean;
   operator: string;
+  closedByOperator?: string;
+  closingBalanceExpected?: number;
+  closingBalanceActual?: number;
+  cashDifference?: number; // 0 = exato, >0 = sobra, <0 = falta
+  closingNotes?: string;
+  sentToEmailAt?: string;
+  sentToEmailAddress?: string;
+  methodTotals?: {
+    pix: number;
+    dinheiro: number;
+    cartao: number;
+    a_prazo: number;
+    totalVendas: number;
+    totalLucro?: number;
+    totalSuprimentos: number;
+    totalSangrias: number;
+    salesCount: number;
+  };
   movements: CashMovement[];
 }
 
@@ -115,6 +134,7 @@ export interface CantinaTenant {
   phone?: string;
   password?: string;
   googleEmail?: string;
+  institutionEmail?: string; // Gmail ou e-mail da Instituição / Direção / Financeiro
   instagramHandle?: string; // e.g. "@colegioevoluirjp"
   logoText?: string;
   pixKey: string;
