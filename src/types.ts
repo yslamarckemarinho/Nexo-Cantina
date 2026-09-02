@@ -137,6 +137,7 @@ export interface CantinaTenant {
   institutionEmail?: string; // Gmail ou e-mail da Instituição / Direção / Financeiro
   instagramHandle?: string; // e.g. "@colegioevoluirjp"
   logoText?: string;
+  logoUrl?: string; // Foto ou logotipo personalizado da cantina (Base64 / URL)
   pixKey: string;
   pixKeyType: 'CPF' | 'CNPJ' | 'Celular' | 'E-mail' | 'Aleatória';
   pixReceiverName: string;
@@ -165,3 +166,37 @@ export interface AuditSecurityLog {
   ip: string;
   status: 'sucesso' | 'alerta' | 'bloqueado';
 }
+
+export interface DeviceProfile {
+  id: string;
+  name: string;
+  role: string;
+  cantina: string;
+  action: string;
+  status?: 'online' | 'synced' | 'busy' | 'offline';
+  latencyMs?: number;
+  lastPing?: string;
+}
+
+export interface TestResultItem {
+  testId: string;
+  title: string;
+  description: string;
+  status: 'PASSED' | 'FAILED' | 'RUNNING' | 'PENDING';
+  latencyMs: number;
+  details: string;
+}
+
+export interface TestSuiteResponse {
+  success: boolean;
+  executedAt: string;
+  executionDurationMs: number;
+  devicesCount: number;
+  devices: DeviceProfile[];
+  totalTests: number;
+  passedCount: number;
+  failedCount: number;
+  overallStatus: string;
+  tests: TestResultItem[];
+}
+

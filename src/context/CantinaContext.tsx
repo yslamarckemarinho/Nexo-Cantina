@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { 
   CantinaTenant, 
   Product, 
@@ -9,7 +9,8 @@ import {
   PaymentMethod, 
   CashMovement, 
   CashShift, 
-  AuditSecurityLog 
+  AuditSecurityLog,
+  TestSuiteResponse
 } from '../types';
 import { INITIAL_CANTINAS, INITIAL_SECURITY_LOGS, DEFAULT_STARTER_PRODUCTS } from '../data/initialData';
 import confetti from 'canvas-confetti';
@@ -24,6 +25,8 @@ interface CantinaContextType {
   activeTab: 'pdv' | 'fiados' | 'estoque' | 'caixa' | 'backup' | 'master';
   securityLogs: AuditSecurityLog[];
   masterPasswordConfigured: boolean;
+  activeDeviceId: string;
+  connectedDevicesCount: number;
   
   // Navigation & Auth
   setActiveTab: (tab: 'pdv' | 'fiados' | 'estoque' | 'caixa' | 'backup' | 'master') => void;
@@ -34,6 +37,7 @@ interface CantinaContextType {
   exitMasterControlRoom: () => void;
   updateMasterPassword: (currentPass: string, newPass: string) => { success: boolean; message: string };
   switchCantina: (cantinaId: string) => void;
+  run10DevicesTestSuite: () => Promise<TestSuiteResponse>;
   
   // PDV & Sales
   processSale: (params: {
@@ -94,6 +98,7 @@ interface CantinaContextType {
   
   // Cantina Settings & Backup
   updateCantinaSettings: (data: Partial<CantinaTenant>) => void;
+  updateCurrentOperator: (name: string) => void;
   exportBackupJSON: () => void;
   exportSalesCSV: () => void;
   restoreFromJSON: (jsonContent: string) => { success: boolean; message: string };
@@ -123,14 +128,30 @@ interface CantinaContextType {
 }
 
 const STORAGE_KEY_CANTINAS = 'nexo_cantinas_tenants_v2';
-const STORAGE_KEY_ACTIVE_ID = 'nexo_cantinas_active_id_v2';
-const STORAGE_KEY_AUTH = 'nexo_cantinas_auth_v2';
 const STORAGE_KEY_MASTER_PASS = 'nexo_cantinas_master_pass_v1';
+const SESSION_KEY_ACTIVE_ID = 'nexo_session_active_id_v2';
+const SESSION_KEY_AUTH = 'nexo_session_auth_v2';
+const SESSION_KEY_DEVICE_ID = 'nexo_session_device_id_v2';
 const DEFAULT_MASTER_PASS = 'r88282810r';
 
 const CantinaContext = createContext<CantinaContextType | undefined>(undefined);
 
 export const CantinaProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [activeDeviceId] = useState<string>(() => {
+    try {
+      const saved = sessionStorage.getItem(SESSION_KEY_DEVICE_ID);
+      if (saved) return saved;
+      const newId = `dev-${Math.random().toString(36).substring(2, 8)}-${Date.now().toString(36).slice(-4)}`;
+      sessionStorage.setItem(SESSION_KEY_DEVICE_ID, newId);
+      return newId;
+    } catch (e) {
+      return `dev-${Date.now()}`;
+    }
+  });
+
+  const [connectedDevicesCount, setConnectedDevicesCount] = useState<number>(1);
+  const syncLockRef = useRef<boolean>(false);
+
   const [masterPassword, setMasterPassword] = useState<string>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY_MASTER_PASS);
@@ -155,27 +176,38 @@ export const CantinaProvider: React.FC<{ children: React.ReactNode }> = ({ child
     return INITIAL_CANTINAS;
   });
 
+  // Tab-isolated active cantina ID (sessionStorage ensures multiple tabs can run different canteens simultaneously)
   const [activeCantinaId, setActiveCantinaId] = useState<string>(() => {
     try {
-      const saved = localStorage.getItem(STORAGE_KEY_ACTIVE_ID);
-      if (saved && INITIAL_CANTINAS.some(c => c.id === saved)) {
-        return saved;
-      }
+      const sessionSaved = sessionStorage.getItem(SESSION_KEY_ACTIVE_ID);
+      if (sessionSaved) return sessionSaved;
+      const localSaved = localStorage.getItem('nexo_cantinas_active_id_v2');
+      if (localSaved) return localSaved;
     } catch (e) {
       // ignore
     }
     return INITIAL_CANTINAS[0]?.id || 'cantina_nexo_matriz';
   });
 
+  // Tab-isolated authentication state
   const [authData, setAuthData] = useState<{
     isAuthenticated: boolean;
     operatorName: string;
     isMasterMode: boolean;
   }>(() => {
     try {
-      const saved = localStorage.getItem(STORAGE_KEY_AUTH);
-      if (saved) {
-        const parsed = JSON.parse(saved);
+      const sessionSaved = sessionStorage.getItem(SESSION_KEY_AUTH);
+      if (sessionSaved) {
+        const parsed = JSON.parse(sessionSaved);
+        return {
+          isAuthenticated: parsed.isAuthenticated || false,
+          operatorName: parsed.operatorName || '',
+          isMasterMode: parsed.isMasterMode || false,
+        };
+      }
+      const localSaved = localStorage.getItem('nexo_cantinas_auth_v2');
+      if (localSaved) {
+        const parsed = JSON.parse(localSaved);
         return {
           isAuthenticated: parsed.isAuthenticated || false,
           operatorName: parsed.operatorName || '',
@@ -195,22 +227,128 @@ export const CantinaProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [activeTab, setActiveTab] = useState<'pdv' | 'fiados' | 'estoque' | 'caixa' | 'backup' | 'master'>('pdv');
   const [securityLogs, setSecurityLogs] = useState<AuditSecurityLog[]>(INITIAL_SECURITY_LOGS);
 
-  // Sync to local storage
+  // Sync global database to local storage
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY_CANTINAS, JSON.stringify(cantinas));
+    try {
+      localStorage.setItem(STORAGE_KEY_CANTINAS, JSON.stringify(cantinas));
+    } catch (e) {
+      console.error('Erro ao salvar cantinas:', e);
+    }
   }, [cantinas]);
 
+  // Sync tab session storage
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY_ACTIVE_ID, activeCantinaId);
+    try {
+      sessionStorage.setItem(SESSION_KEY_ACTIVE_ID, activeCantinaId);
+    } catch (e) {
+      // ignore
+    }
   }, [activeCantinaId]);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY_AUTH, JSON.stringify(authData));
+    try {
+      sessionStorage.setItem(SESSION_KEY_AUTH, JSON.stringify(authData));
+    } catch (e) {
+      // ignore
+    }
   }, [authData]);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY_MASTER_PASS, masterPassword);
+    try {
+      localStorage.setItem(STORAGE_KEY_MASTER_PASS, masterPassword);
+    } catch (e) {
+      // ignore
+    }
   }, [masterPassword]);
+
+  // Sync to Cloud Server API for multi-device & multi-tab synchronization
+  useEffect(() => {
+    const syncToServer = async () => {
+      try {
+        const res = await fetch('/api/cantinas/sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            cantinas,
+            deviceId: activeDeviceId,
+            cantinaId: activeCantinaId,
+            operatorName: authData.operatorName || 'Operador',
+            role: authData.isMasterMode ? 'Master Admin' : 'PDV Caixa',
+            deviceLabel: `Dispositivo (${activeDeviceId.slice(-4).toUpperCase()})`
+          })
+        });
+        const data = await res.json();
+        if (data && data.connectedDevicesCount) {
+          setConnectedDevicesCount(data.connectedDevicesCount);
+        }
+      } catch (e) {
+        // network sync failed silently in offline mode
+      }
+    };
+
+    const timer = setTimeout(syncToServer, 300);
+    return () => clearTimeout(timer);
+  }, [cantinas, activeDeviceId, activeCantinaId, authData]);
+
+  // Background polling from Cloud Server API for real-time changes across 10 devices
+  useEffect(() => {
+    const pollInterval = setInterval(async () => {
+      if (syncLockRef.current) return;
+      try {
+        const res = await fetch('/api/cantinas');
+        const data = await res.json();
+        if (data && data.cantinas && Array.isArray(data.cantinas) && data.cantinas.length > 0) {
+          setCantinas(prev => {
+            const currentStr = JSON.stringify(prev);
+            const serverStr = JSON.stringify(data.cantinas);
+            if (currentStr !== serverStr) {
+              return data.cantinas;
+            }
+            return prev;
+          });
+        }
+      } catch (e) {
+        // offline or silent
+      }
+    }, 3500);
+
+    return () => clearInterval(pollInterval);
+  }, []);
+
+  // Listen to storage events from other tabs to sync database without altering this tab's login session
+  useEffect(() => {
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === STORAGE_KEY_CANTINAS && e.newValue) {
+        try {
+          const parsed = JSON.parse(e.newValue);
+          if (Array.isArray(parsed)) {
+            setCantinas(parsed);
+          }
+        } catch (err) {
+          // ignore
+        }
+      }
+      if (e.key === STORAGE_KEY_MASTER_PASS && e.newValue) {
+        setMasterPassword(e.newValue);
+      }
+    };
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
+  }, []);
+
+  const run10DevicesTestSuite = async (): Promise<TestSuiteResponse> => {
+    try {
+      const res = await fetch('/api/test-suite/run-10-devices', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ executedBy: authData.operatorName || 'Master Admin' })
+      });
+      const data = await res.json();
+      return data;
+    } catch (e: any) {
+      throw new Error(e.message || 'Falha ao executar bateria de testes dos 10 aparelhos.');
+    }
+  };
 
   const activeCantina = cantinas.find(c => c.id === activeCantinaId) || cantinas[0] || null;
 
@@ -330,10 +468,26 @@ export const CantinaProvider: React.FC<{ children: React.ReactNode }> = ({ child
       operatorName: '',
       isMasterMode: false,
     });
+    try {
+      sessionStorage.removeItem(SESSION_KEY_AUTH);
+      localStorage.removeItem('nexo_cantinas_auth_v2');
+    } catch (e) {
+      // ignore
+    }
   };
 
   const exitMasterControlRoom = () => {
-    setAuthData(prev => ({ ...prev, isMasterMode: false }));
+    setAuthData({
+      isAuthenticated: false,
+      operatorName: '',
+      isMasterMode: false,
+    });
+    try {
+      sessionStorage.removeItem(SESSION_KEY_AUTH);
+      localStorage.removeItem('nexo_cantinas_auth_v2');
+    } catch (e) {
+      // ignore
+    }
     setActiveTab('pdv');
   };
 
@@ -364,14 +518,21 @@ export const CantinaProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const totalAmount = params.items.reduce((acc, item) => acc + item.totalPrice, 0);
     const totalCost = params.items.reduce((acc, item) => acc + (item.costPrice || 0) * item.quantity, 0);
 
+    const isPrazo = params.paymentMethod === 'fiado' || params.paymentMethod === 'a_prazo';
+    
+    // Resolve target customer for a_prazo: match by customerId or customerName
+    const targetCustomer = isPrazo 
+      ? activeCantina.customers.find(c => c.id === params.customerId || (params.customerName && c.name.toLowerCase() === params.customerName.toLowerCase()))
+      : null;
+
     const newSale: Sale = {
       id: `sale-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
       timestamp: now.toISOString(),
       formattedDate,
       formattedTime,
       paymentMethod: params.paymentMethod,
-      customerId: params.customerId,
-      customerName: params.customerName,
+      customerId: targetCustomer ? targetCustomer.id : params.customerId,
+      customerName: targetCustomer ? targetCustomer.name : params.customerName,
       items: params.items,
       totalAmount,
       totalCost,
@@ -400,29 +561,31 @@ export const CantinaProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
       // 2. If Fiado / A Prazo, append to customer debts
       let updatedCustomers = c.customers;
-      const isPrazo = params.paymentMethod === 'fiado' || params.paymentMethod === 'a_prazo';
-      if (isPrazo && params.customerId) {
-        updatedCustomers = c.customers.map(cust => {
-          if (cust.id !== params.customerId) return cust;
+      if (isPrazo) {
+        const resolvedCustId = targetCustomer?.id || params.customerId || (c.customers.length === 1 ? c.customers[0].id : undefined);
+        if (resolvedCustId) {
+          updatedCustomers = c.customers.map(cust => {
+            if (cust.id !== resolvedCustId) return cust;
 
-          const newDebtItems: DebtItem[] = params.items.map(item => ({
-            id: `debt-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-            saleId: newSale.id,
-            timestamp: now.toISOString(),
-            formattedDate,
-            formattedTime,
-            name: item.name,
-            quantity: item.quantity,
-            unitPrice: item.unitPrice,
-            totalPrice: item.totalPrice,
-            paid: false,
-          }));
+            const newDebtItems: DebtItem[] = params.items.map(item => ({
+              id: `debt-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+              saleId: newSale.id,
+              timestamp: now.toISOString(),
+              formattedDate,
+              formattedTime,
+              name: item.name,
+              quantity: item.quantity,
+              unitPrice: item.unitPrice,
+              totalPrice: item.totalPrice,
+              paid: false,
+            }));
 
-          return {
-            ...cust,
-            items: [...cust.items, ...newDebtItems]
-          };
-        });
+            return {
+              ...cust,
+              items: [...cust.items, ...newDebtItems]
+            };
+          });
+        }
       }
 
       // 3. Update shifts / cash movement if cash/pix/card
@@ -1039,15 +1202,20 @@ export const CantinaProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   const resetSystemToZero = () => {
-    localStorage.removeItem(STORAGE_KEY_CANTINAS);
-    localStorage.removeItem(STORAGE_KEY_ACTIVE_ID);
-    localStorage.removeItem(STORAGE_KEY_AUTH);
+    try {
+      localStorage.removeItem(STORAGE_KEY_CANTINAS);
+      localStorage.removeItem('nexo_cantinas_active_id_v2');
+      localStorage.removeItem('nexo_cantinas_auth_v2');
+      sessionStorage.removeItem(SESSION_KEY_ACTIVE_ID);
+      sessionStorage.removeItem(SESSION_KEY_AUTH);
+    } catch (e) {
+      // ignore
+    }
     setCantinas(INITIAL_CANTINAS);
     setActiveCantinaId(INITIAL_CANTINAS[0]?.id || 'cantina_nexo_matriz');
     setAuthData({
       isAuthenticated: true,
       operatorName: 'admin',
-      isGoogleAuth: false,
       isMasterMode: false,
     });
     setSecurityLogs(INITIAL_SECURITY_LOGS);
@@ -1197,13 +1365,26 @@ export const CantinaProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }));
   };
 
-  // Settings & Backups
+  // Settings & Backups & Profile
   const updateCantinaSettings = (data: Partial<CantinaTenant>) => {
     if (!activeCantina) return;
     setCantinas(prev => prev.map(c => {
       if (c.id !== activeCantina.id) return c;
       return { ...c, ...data };
     }));
+    if (data.operatorName && data.operatorName.trim()) {
+      setAuthData(prev => ({ ...prev, operatorName: data.operatorName!.trim() }));
+    }
+    logSecurityAction(`Configurações/Perfil da cantina "${data.name || activeCantina.name}" atualizados`, activeCantina.name, 'sucesso');
+  };
+
+  const updateCurrentOperator = (name: string) => {
+    const clean = name.trim() || 'Operador';
+    setAuthData(prev => ({ ...prev, operatorName: clean }));
+    if (activeCantina) {
+      setCantinas(prev => prev.map(c => c.id === activeCantina.id ? { ...c, operatorName: clean } : c));
+      logSecurityAction(`Operador do caixa alterado para: ${clean}`, activeCantina.name, 'sucesso');
+    }
   };
 
   const exportBackupJSON = () => {
@@ -1275,15 +1456,31 @@ export const CantinaProvider: React.FC<{ children: React.ReactNode }> = ({ child
     password?: string;
     pin?: string; 
     pixKey?: string; 
+    logoUrl?: string;
     monthlyFee?: number;
     monthlyFeeDueDay?: number;
   }): CantinaTenant => {
-    const rawSub = (data.subdomain || data.name).toLowerCase().replace(/[^a-z0-9]/g, '_');
-    const cleanSubdomain = rawSub.replace(/^_+|_+$/g, '') || `cantina_${Date.now()}`;
+    const baseSub = (data.subdomain || data.name).toLowerCase().replace(/[^a-z0-9]/g, '_').replace(/^_+|_+$/g, '') || 'cantina';
+    let cleanSubdomain = baseSub;
+    let counter = 1;
+    while (cantinas.some(c => c.subdomain.toLowerCase() === cleanSubdomain.toLowerCase() || c.id === `cantina_${cleanSubdomain}`)) {
+      cleanSubdomain = `${baseSub}_${counter++}`;
+    }
     const newId = `cantina_${cleanSubdomain}`;
     const pass = data.password?.trim() || data.pin?.trim() || '1234';
     const emailLogin = data.email?.trim() || `${cleanSubdomain}@nexocantinas.com`;
-    const userLogin = data.loginUsername?.trim() || cleanSubdomain;
+    
+    let userLogin = data.loginUsername?.trim() || cleanSubdomain;
+    if (cantinas.some(c => c.loginUsername?.toLowerCase() === userLogin.toLowerCase() || c.email?.toLowerCase() === userLogin.toLowerCase())) {
+      userLogin = `${userLogin}${counter > 1 ? counter : Math.floor(100 + Math.random() * 900)}`;
+    }
+
+    // Clone starter products with fresh isolated unique IDs so each canteen has independent inventory
+    const clonedStarterProducts: Product[] = DEFAULT_STARTER_PRODUCTS.map((p, idx) => ({
+      ...p,
+      id: `p-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 6)}`,
+      totalSold: 0
+    }));
 
     const newTenant: CantinaTenant = {
       id: newId,
@@ -1295,17 +1492,18 @@ export const CantinaProvider: React.FC<{ children: React.ReactNode }> = ({ child
       loginUsername: userLogin,
       phone: data.phone?.trim() || '',
       logoText: (data.schoolName || data.name).substring(0, 10).toUpperCase(),
+      logoUrl: data.logoUrl || '',
       pixKey: data.pixKey?.trim() || '',
       pixKeyType: 'Celular',
       pixReceiverName: data.ownerName?.trim() || data.name.trim(),
       pin: pass,
       password: pass,
       operatorName: data.ownerName?.trim() || 'admin',
-      monthlyFee: data.monthlyFee !== undefined ? data.monthlyFee : 149.00,
-      monthlyFeeDueDay: data.monthlyFeeDueDay || 10,
+      monthlyFee: data.monthlyFee !== undefined ? Number(data.monthlyFee) : 149.00,
+      monthlyFeeDueDay: Number(data.monthlyFeeDueDay) || 10,
       monthlyFeeStatus: 'paid',
       status: 'active',
-      products: DEFAULT_STARTER_PRODUCTS,
+      products: clonedStarterProducts,
       customers: [],
       sales: [],
       shifts: [],
@@ -1313,7 +1511,7 @@ export const CantinaProvider: React.FC<{ children: React.ReactNode }> = ({ child
     };
 
     setCantinas(prev => [...prev, newTenant]);
-    logSecurityAction(`Nova cantina provisionada pelo Master: ${data.name} (Login: ${userLogin})`, data.name, 'sucesso');
+    logSecurityAction(`Nova cantina provisionada com segurança pelo Master: ${data.name} (Login: ${userLogin})`, data.name, 'sucesso');
     return newTenant;
   };
 
@@ -1400,6 +1598,8 @@ export const CantinaProvider: React.FC<{ children: React.ReactNode }> = ({ child
         activeTab,
         securityLogs,
         masterPasswordConfigured: masterPassword !== DEFAULT_MASTER_PASS,
+        activeDeviceId,
+        connectedDevicesCount,
         setActiveTab,
         smartLogin,
         login,
@@ -1408,6 +1608,7 @@ export const CantinaProvider: React.FC<{ children: React.ReactNode }> = ({ child
         exitMasterControlRoom,
         updateMasterPassword,
         switchCantina,
+        run10DevicesTestSuite,
         processSale,
         cancelSale,
         addCustomer,
@@ -1429,6 +1630,7 @@ export const CantinaProvider: React.FC<{ children: React.ReactNode }> = ({ child
         markShiftEmailSent,
         addCashMovement,
         updateCantinaSettings,
+        updateCurrentOperator,
         exportBackupJSON,
         exportSalesCSV,
         restoreFromJSON,

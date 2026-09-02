@@ -15,7 +15,9 @@ import {
   Lock,
   UserCheck,
   AlertCircle,
-  X
+  X,
+  Edit2,
+  Check
 } from 'lucide-react';
 
 export const Header: React.FC = () => {
@@ -29,12 +31,15 @@ export const Header: React.FC = () => {
     isMasterMode, 
     logout, 
     switchCantina,
+    updateCurrentOperator,
     enterMasterControlRoom,
     exitMasterControlRoom
   } = useCantina();
 
   const [showCantinaSwitcher, setShowCantinaSwitcher] = useState(false);
   const [showSecretMasterModal, setShowSecretMasterModal] = useState(false);
+  const [showOperatorModal, setShowOperatorModal] = useState(false);
+  const [newOperatorInput, setNewOperatorInput] = useState('');
   const [secretPasswordInput, setSecretPasswordInput] = useState('');
   const [secretError, setSecretError] = useState('');
   const [logoClickCount, setLogoClickCount] = useState(0);
@@ -75,6 +80,15 @@ export const Header: React.FC = () => {
       setSecretError('');
     } else {
       setSecretError(res.error || 'Senha incorreta.');
+    }
+  };
+
+  const handleOperatorChangeSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (newOperatorInput.trim()) {
+      updateCurrentOperator(newOperatorInput.trim());
+      setShowOperatorModal(false);
+      setNewOperatorInput('');
     }
   };
 
@@ -147,20 +161,37 @@ export const Header: React.FC = () => {
       <div className="max-w-7xl mx-auto px-3 sm:px-4">
         {/* Top brand line */}
         <div className="flex items-center justify-between py-2.5 border-b border-slate-800/80 text-xs sm:text-sm">
-          {/* Active cantina & Nexo branding */}
+          {/* Active cantina & Logo */}
           <div className="flex items-center gap-2.5">
-            <button
-              type="button"
-              onClick={handleLogoClick}
-              title="Nexo Cantinas"
-              className="focus:outline-none transition active:scale-95"
-            >
-              <NexoLogo size={32} />
-            </button>
+            <div className="relative">
+              {activeCantina?.logoUrl ? (
+                <div 
+                  onClick={handleLogoClick}
+                  className="w-9 h-9 rounded-xl overflow-hidden border border-indigo-500/50 bg-slate-800 flex items-center justify-center cursor-pointer shadow-sm active:scale-95 transition"
+                  title="Clique 5 vezes para acesso Master"
+                >
+                  <img 
+                    src={activeCantina.logoUrl} 
+                    alt={activeCantina.name} 
+                    className="w-full h-full object-cover" 
+                    referrerPolicy="no-referrer"
+                  />
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleLogoClick}
+                  title="Clique 5 vezes para acesso Master"
+                  className="focus:outline-none transition active:scale-95"
+                >
+                  <NexoLogo size={32} />
+                </button>
+              )}
+            </div>
 
             <div>
               <div className="flex items-center gap-1.5 font-bold text-white tracking-tight">
-                <span>{activeCantina?.name || 'Nexo Cantinas'}</span>
+                <span className="text-sm sm:text-base font-extrabold">{activeCantina?.name || 'Nexo Cantinas'}</span>
                 {activeCantina?.status === 'active' ? (
                   <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" title="Online" />
                 ) : (
@@ -173,13 +204,24 @@ export const Header: React.FC = () => {
             </div>
           </div>
 
-          {/* User info & Logout */}
+          {/* User info & Operator change & Logout */}
           <div className="flex items-center gap-2">
-            <div className="flex items-center gap-1.5 bg-slate-800/60 px-2.5 py-1 rounded-xl border border-slate-700/60 text-slate-300 text-xs">
-              <UserCheck className="w-3.5 h-3.5 text-emerald-400" />
-              <span className="font-medium text-slate-200">
+            <button
+              type="button"
+              onClick={() => {
+                setNewOperatorInput(operatorName || activeCantina?.operatorName || '');
+                setShowOperatorModal(true);
+              }}
+              className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700/80 px-2.5 py-1 rounded-xl border border-slate-700/80 text-slate-300 text-xs transition active:scale-95 group"
+              title="Clique para alterar o nome de quem está operando o caixa"
+            >
+              <UserCheck className="w-3.5 h-3.5 text-emerald-400 group-hover:text-emerald-300" />
+              <span className="font-semibold text-slate-200">
                 {isMasterMode ? 'Administrador Master' : (operatorName || 'Operador')}
               </span>
+              {!isMasterMode && (
+                <Edit2 className="w-2.5 h-2.5 text-slate-400 opacity-60 group-hover:opacity-100" />
+              )}
               {isMasterMode && (
                 <span className="bg-gradient-to-r from-blue-600 to-cyan-500 text-slate-950 text-[10px] px-1.5 py-0.2 rounded font-black">
                   MASTER
@@ -188,7 +230,7 @@ export const Header: React.FC = () => {
               {!isMasterMode && isGoogleAuth && (
                 <span className="bg-blue-900/60 text-blue-300 text-[10px] px-1.5 py-0.2 rounded border border-blue-700/50 font-semibold">Google</span>
               )}
-            </div>
+            </button>
 
             <button
               id="header-logout-btn"
@@ -293,12 +335,68 @@ export const Header: React.FC = () => {
                 }`}
               >
                 <Download className="w-4 h-4" />
-                <span>Configurações & Backup</span>
+                <span>Configurações & Perfil</span>
               </button>
             </>
           )}
         </nav>
       </div>
+
+      {/* Quick Operator Switch Modal */}
+      {showOperatorModal && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fadeIn">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl p-5 max-w-sm w-full shadow-2xl space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-white font-extrabold text-sm">
+                <UserCheck className="w-4 h-4 text-emerald-400" />
+                <span>Trocar Operador do Caixa</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowOperatorModal(false)}
+                className="text-slate-400 hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-400">
+              Digite o nome de quem está assumindo o caixa agora na cantina <strong>{activeCantina?.name}</strong>:
+            </p>
+
+            <form onSubmit={handleOperatorChangeSubmit} className="space-y-3">
+              <div>
+                <input
+                  type="text"
+                  value={newOperatorInput}
+                  onChange={(e) => setNewOperatorInput(e.target.value)}
+                  placeholder="Ex: Carlos Silva ou Caixa 2"
+                  autoFocus
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-emerald-400 font-semibold"
+                  required
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setShowOperatorModal(false)}
+                  className="px-3 py-1.5 text-xs text-slate-400 hover:text-white"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl transition shadow flex items-center gap-1.5"
+                >
+                  <Check className="w-3.5 h-3.5" />
+                  <span>Confirmar Operador</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Secret Master Auth Modal */}
       {showSecretMasterModal && (

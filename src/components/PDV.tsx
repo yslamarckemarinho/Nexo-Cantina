@@ -90,10 +90,24 @@ export const PDV: React.FC = () => {
 
   // PDV States
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('a_prazo');
-  const [selectedCustomerId, setSelectedCustomerId] = useState<string>('c1'); // default to first customer with debt
+  const [selectedCustomerId, setSelectedCustomerId] = useState<string>(() => {
+    return activeCantina?.customers[0]?.id || '';
+  });
   const [customerFilter, setCustomerFilter] = useState<string>('');
   const [codeInputValue, setCodeInputValue] = useState<string>('');
   const [showTouchKeypad, setShowTouchKeypad] = useState<boolean>(true);
+
+  // Sync selectedCustomerId whenever activeCantina or customers list changes
+  useEffect(() => {
+    if (activeCantina && activeCantina.customers.length > 0) {
+      const exists = activeCantina.customers.some(c => c.id === selectedCustomerId);
+      if (!exists) {
+        setSelectedCustomerId(activeCantina.customers[0].id);
+      }
+    } else {
+      setSelectedCustomerId('');
+    }
+  }, [activeCantina?.id, activeCantina?.customers]);
   
   // Custom item modal
   const [showCustomItemModal, setShowCustomItemModal] = useState(false);
@@ -368,7 +382,10 @@ export const PDV: React.FC = () => {
     amountReceived?: number,
     changeGiven?: number
   ) => {
-    const selectedCust = activeCantina.customers.find(c => c.id === selectedCustomerId);
+    let selectedCust = activeCantina.customers.find(c => c.id === selectedCustomerId);
+    if (isAPrazo && !selectedCust && activeCantina.customers.length > 0) {
+      selectedCust = activeCantina.customers[0];
+    }
 
     const sale = processSale({
       paymentMethod: method,
@@ -398,9 +415,14 @@ export const PDV: React.FC = () => {
       return;
     }
 
-    if (isAPrazo && !selectedCustomerId) {
-      alert('Para lançar na Conta a Prazo, selecione um cliente obrigatório.');
+    if (isAPrazo && activeCantina.customers.length === 0) {
+      alert('Para lançar na Conta a Prazo, cadastre primeiro o aluno/cliente.');
+      setShowNewCustomerModal(true);
       return;
+    }
+
+    if (isAPrazo && !selectedCustomerId && activeCantina.customers.length > 0) {
+      setSelectedCustomerId(activeCantina.customers[0].id);
     }
 
     // If payment method is Dinheiro, open smart change calculator modal first!

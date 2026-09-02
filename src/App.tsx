@@ -25,7 +25,10 @@ import {
 const CantinaAppContent: React.FC = () => {
   const { 
     activeTab, 
+    activeCantina,
     isAuthenticated, 
+    isMasterMode,
+    logout,
     smartLogin, 
     enterMasterControlRoom 
   } = useCantina();
@@ -275,6 +278,45 @@ const CantinaAppContent: React.FC = () => {
             </div>
           </div>
         )}
+      </div>
+    );
+  }
+
+  // If cantina is suspended and not currently operating in Master mode, block access immediately
+  if (!isMasterMode && activeCantina?.status === 'suspended') {
+    return (
+      <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-4 font-sans">
+        <div className="max-w-md w-full bg-slate-900 border border-rose-600/70 rounded-3xl p-6 sm:p-8 shadow-2xl text-center space-y-5">
+          <div className="w-16 h-16 bg-rose-500/20 text-rose-400 border border-rose-500/40 rounded-2xl flex items-center justify-center mx-auto animate-pulse">
+            <Lock className="w-8 h-8" />
+          </div>
+
+          <div className="space-y-2">
+            <span className="px-3 py-1 bg-rose-500/20 text-rose-300 border border-rose-500/40 rounded-full text-xs font-bold uppercase tracking-wider">
+              Acesso Temporariamente Suspenso
+            </span>
+            <h2 className="text-xl font-black text-white">
+              Cantina Bloqueada pelo Master
+            </h2>
+            <p className="text-xs text-slate-400 leading-relaxed">
+              O acesso ao sistema e ao caixa desta cantina (<strong className="text-slate-200">{activeCantina.name}</strong>) foi bloqueado pelo Administrador Central da plataforma.
+            </p>
+          </div>
+
+          <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 text-xs text-slate-400 space-y-1 text-left">
+            <div className="font-bold text-slate-300">Motivo:</div>
+            <p>Suspensão preventiva ou regularização de cadastro/mensalidade.</p>
+            <p className="text-[11px] text-slate-500 pt-1">Caso precise de suporte, entre em contato com a administração da Nexo Cantinas.</p>
+          </div>
+
+          <button
+            type="button"
+            onClick={logout}
+            className="w-full py-3 bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs sm:text-sm rounded-xl transition border border-slate-700"
+          >
+            Voltar para a Tela de Login
+          </button>
+        </div>
       </div>
     );
   }

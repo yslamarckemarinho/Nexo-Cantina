@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { useCantina } from '../context/CantinaContext';
 import { NexoLogo } from './NexoLogo';
+import { MultiDeviceTestCenter } from './MultiDeviceTestCenter';
 import { 
   ShieldCheck, 
   Store, 
@@ -30,7 +31,11 @@ import {
   User,
   Share2,
   Copy,
-  Phone
+  Phone,
+  Smartphone,
+  Cpu,
+  Camera,
+  Image as ImageIcon
 } from 'lucide-react';
 
 export const MasterControlRoom: React.FC = () => {
@@ -50,6 +55,8 @@ export const MasterControlRoom: React.FC = () => {
     resetSystemToZero 
   } = useCantina();
 
+  const [masterTab, setMasterTab] = useState<'cantinas' | 'device_tests' | 'logs'>('cantinas');
+
   // Master Password change modal state
   const [showMasterPassModal, setShowMasterPassModal] = useState(false);
   const [currentMasterPassInput, setCurrentMasterPassInput] = useState('');
@@ -67,9 +74,29 @@ export const MasterControlRoom: React.FC = () => {
   const [newPhone, setNewPhone] = useState('');
   const [newPassword, setNewPassword] = useState('1234');
   const [newPixKey, setNewPixKey] = useState('');
+  const [newLogoUrl, setNewLogoUrl] = useState('');
   const [newMonthlyFee, setNewMonthlyFee] = useState('149.00');
   const [newDueDay, setNewDueDay] = useState('10');
   const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
+
+  const newCantinaPhotoInputRef = useRef<HTMLInputElement>(null);
+
+  const handleNewCantinaPhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 3 * 1024 * 1024) {
+      alert('Foto muito grande. Escolha uma imagem de até 3MB.');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const base64 = event.target?.result as string;
+      if (base64) {
+        setNewLogoUrl(base64);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
 
   // Password reset modal state
   const [resetModalCantina, setResetModalCantina] = useState<any | null>(null);
@@ -125,6 +152,7 @@ export const MasterControlRoom: React.FC = () => {
       password: newPassword.trim() || '1234',
       pin: newPassword.trim() || '1234',
       pixKey: newPixKey.trim(),
+      logoUrl: newLogoUrl,
       monthlyFee: parseFloat(newMonthlyFee) || 149.00,
       monthlyFeeDueDay: parseInt(newDueDay, 10) || 10
     });
@@ -137,6 +165,7 @@ export const MasterControlRoom: React.FC = () => {
     setNewPhone('');
     setNewPassword('1234');
     setNewPixKey('');
+    setNewLogoUrl('');
     setNewMonthlyFee('149.00');
     setNewDueDay('10');
     setShowNewCantinaModal(false);
@@ -346,7 +375,53 @@ export const MasterControlRoom: React.FC = () => {
         </div>
       )}
 
-      {/* Tenancy Executive Management Section */}
+      {/* Master Sub-Navigation Tabs */}
+      <div className="flex flex-wrap items-center gap-2 bg-slate-900/90 p-1.5 rounded-2xl border border-slate-800">
+        <button
+          type="button"
+          onClick={() => setMasterTab('cantinas')}
+          className={`flex-1 sm:flex-initial px-4 py-2.5 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 ${
+            masterTab === 'cantinas'
+              ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md'
+              : 'text-slate-400 hover:text-white hover:bg-slate-800/80'
+          }`}
+        >
+          <Store className="w-4 h-4" />
+          <span>Gestão de Cantinas ({cantinas.length})</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setMasterTab('device_tests')}
+          className={`flex-1 sm:flex-initial px-4 py-2.5 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 ${
+            masterTab === 'device_tests'
+              ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-md'
+              : 'text-slate-400 hover:text-white hover:bg-slate-800/80'
+          }`}
+        >
+          <Smartphone className="w-4 h-4 text-emerald-400" />
+          <span>Central de Testes (10 Aparelhos)</span>
+          <span className="px-1.5 py-0.5 bg-emerald-500/20 text-emerald-300 text-[10px] rounded-full font-mono font-black">
+            10/10 OK
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setMasterTab('logs')}
+          className={`flex-1 sm:flex-initial px-4 py-2.5 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 ${
+            masterTab === 'logs'
+              ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white shadow-md'
+              : 'text-slate-400 hover:text-white hover:bg-slate-800/80'
+          }`}
+        >
+          <Activity className="w-4 h-4" />
+          <span>Auditoria & Segurança ({securityLogs.length})</span>
+        </button>
+      </div>
+
+      {/* TAB 1: Tenancy Executive Management Section */}
+      {masterTab === 'cantinas' && (
       <div className="space-y-4">
         <div className="flex items-center justify-between flex-wrap gap-2">
           <div>
@@ -395,35 +470,48 @@ export const MasterControlRoom: React.FC = () => {
               >
                 {/* Header of Card */}
                 <div className="flex items-start justify-between gap-3">
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-[11px] font-bold text-cyan-400 uppercase tracking-wide">
-                        {cantina.schoolName}
-                      </span>
-                      {isSuspended ? (
-                        <span className="px-2 py-0.5 bg-rose-500/20 text-rose-300 text-[10px] font-extrabold rounded-full border border-rose-500/40">
-                          ACESSO BLOQUEADO
+                  <div className="flex items-center gap-3">
+                    {cantina.logoUrl ? (
+                      <img
+                        src={cantina.logoUrl}
+                        alt={cantina.name}
+                        className="w-12 h-12 rounded-2xl object-cover border border-slate-700 bg-slate-950 shadow flex-shrink-0"
+                      />
+                    ) : (
+                      <div className="w-12 h-12 rounded-2xl bg-indigo-950/60 border border-indigo-700/40 flex items-center justify-center text-indigo-400 font-black text-lg flex-shrink-0 shadow">
+                        {cantina.name.charAt(0).toUpperCase()}
+                      </div>
+                    )}
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-[11px] font-bold text-cyan-400 uppercase tracking-wide">
+                          {cantina.schoolName}
                         </span>
-                      ) : (
-                        <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-300 text-[10px] font-extrabold rounded-full border border-emerald-500/40">
-                          OPERANDO ATIVA
-                        </span>
-                      )}
-                      {isActiveTenant && (
-                        <span className="px-2 py-0.5 bg-blue-500/20 text-blue-300 text-[10px] font-extrabold rounded-full border border-blue-500/40">
-                          Sessão Aberta
-                        </span>
-                      )}
-                    </div>
+                        {isSuspended ? (
+                          <span className="px-2 py-0.5 bg-rose-500/20 text-rose-300 text-[10px] font-extrabold rounded-full border border-rose-500/40">
+                            ACESSO BLOQUEADO
+                          </span>
+                        ) : (
+                          <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-300 text-[10px] font-extrabold rounded-full border border-emerald-500/40">
+                            OPERANDO ATIVA
+                          </span>
+                        )}
+                        {isActiveTenant && (
+                          <span className="px-2 py-0.5 bg-blue-500/20 text-blue-300 text-[10px] font-extrabold rounded-full border border-blue-500/40">
+                            Sessão Aberta
+                          </span>
+                        )}
+                      </div>
 
-                    <h4 className="text-lg font-black text-white">
-                      {cantina.name}
-                    </h4>
+                      <h4 className="text-lg font-black text-white">
+                        {cantina.name}
+                      </h4>
 
-                    <div className="flex items-center gap-3 text-xs text-slate-400 font-mono-num flex-wrap">
-                      <span>Responsável: <strong className="text-slate-200">{cantina.ownerName || 'Não inf.'}</strong></span>
-                      <span>•</span>
-                      <span>Login: <strong className="text-slate-200">{cantina.email || cantina.loginUsername || cantina.subdomain}</strong></span>
+                      <div className="flex items-center gap-3 text-xs text-slate-400 font-mono-num flex-wrap">
+                        <span>Responsável: <strong className="text-slate-200">{cantina.ownerName || 'Não inf.'}</strong></span>
+                        <span>•</span>
+                        <span>Login: <strong className="text-slate-200">{cantina.email || cantina.loginUsername || cantina.subdomain}</strong></span>
+                      </div>
                     </div>
                   </div>
 
@@ -563,8 +651,15 @@ export const MasterControlRoom: React.FC = () => {
           })}
         </div>
       </div>
+      )}
 
-      {/* Security & Audit Logs Section */}
+      {/* TAB 2: Multi-Device Real Time Test Center */}
+      {masterTab === 'device_tests' && (
+        <MultiDeviceTestCenter />
+      )}
+
+      {/* TAB 3: Security & Audit Logs Section */}
+      {masterTab === 'logs' && (
       <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-4">
         <div className="flex items-center justify-between flex-wrap gap-2">
           <div className="flex items-center gap-2.5">
@@ -586,7 +681,7 @@ export const MasterControlRoom: React.FC = () => {
           </span>
         </div>
 
-        <div className="space-y-2 max-h-64 overflow-y-auto no-scrollbar">
+        <div className="space-y-2 max-h-96 overflow-y-auto no-scrollbar">
           {securityLogs.map(log => (
             <div 
               key={log.id}
@@ -612,6 +707,7 @@ export const MasterControlRoom: React.FC = () => {
           ))}
         </div>
       </div>
+      )}
 
       {/* Modal: Reset Cantina Password */}
       {resetModalCantina && (
@@ -792,6 +888,58 @@ export const MasterControlRoom: React.FC = () => {
             </div>
 
             <form onSubmit={handleCreateCantinaSubmit} className="space-y-3.5 max-h-[80vh] overflow-y-auto pr-1">
+              {/* Photo Upload for New Cantina */}
+              <div className="flex items-center gap-3 p-3 bg-slate-950/60 rounded-2xl border border-slate-800">
+                <div className="relative">
+                  {newLogoUrl ? (
+                    <img
+                      src={newLogoUrl}
+                      alt="Logo"
+                      className="w-14 h-14 rounded-2xl object-cover border border-cyan-500/50 shadow"
+                    />
+                  ) : (
+                    <div className="w-14 h-14 rounded-2xl bg-slate-800 border border-slate-700 flex items-center justify-center text-slate-400">
+                      <ImageIcon className="w-6 h-6" />
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex-1 space-y-1">
+                  <label className="block text-xs font-bold text-slate-300">
+                    Foto / Logomarca da Cantina (Opcional):
+                  </label>
+                  <p className="text-[10px] text-slate-500">
+                    Aparecerá no cabeçalho do PDV e nos comprovantes.
+                  </p>
+                  <div className="flex items-center gap-2 pt-0.5">
+                    <input
+                      type="file"
+                      ref={newCantinaPhotoInputRef}
+                      onChange={handleNewCantinaPhotoUpload}
+                      accept="image/*"
+                      className="hidden"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => newCantinaPhotoInputRef.current?.click()}
+                      className="px-2.5 py-1 bg-indigo-600/80 hover:bg-indigo-600 text-white rounded-lg text-xs font-semibold flex items-center gap-1 transition"
+                    >
+                      <Camera className="w-3.5 h-3.5" />
+                      <span>{newLogoUrl ? 'Trocar Foto' : 'Carregar Foto'}</span>
+                    </button>
+                    {newLogoUrl && (
+                      <button
+                        type="button"
+                        onClick={() => setNewLogoUrl('')}
+                        className="px-2 py-1 text-xs text-rose-400 hover:text-rose-300"
+                      >
+                        Remover
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-semibold text-slate-300 mb-1">
