@@ -25,7 +25,11 @@ import {
   Calculator,
   X,
   RotateCcw,
-  CheckCircle2
+  CheckCircle2,
+  Lock,
+  Unlock,
+  KeyRound,
+  AlertTriangle
 } from 'lucide-react';
 
 interface DenominationBreakdown {
@@ -77,7 +81,8 @@ export const PDV: React.FC = () => {
     processSale, 
     addCustomer, 
     setActiveTab, 
-    operatorName 
+    operatorName,
+    openCashShift
   } = useCantina();
 
   if (!activeCantina) {
@@ -87,6 +92,14 @@ export const PDV: React.FC = () => {
       </div>
     );
   }
+
+  // Current Shift Status
+  const currentShift = activeCantina.shifts && activeCantina.shifts.length > 0 ? activeCantina.shifts[0] : null;
+  const isShiftOpen = !!(currentShift && currentShift.isOpen);
+
+  // Mandatory Open Shift Modal
+  const [showOpenShiftModal, setShowOpenShiftModal] = useState<boolean>(false);
+  const [initialCashInput, setInitialCashInput] = useState<string>('50.00');
 
   // PDV States
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('a_prazo');
@@ -408,8 +421,22 @@ export const PDV: React.FC = () => {
     setCashReceivedInput('');
   };
 
+  // Handle open shift submit
+  const handleConfirmOpenShift = (e: React.FormEvent) => {
+    e.preventDefault();
+    const initialCash = parseFloat(initialCashInput) || 0;
+    openCashShift(initialCash);
+    setShowOpenShiftModal(false);
+  };
+
   // Confirm and process the sale
   const handleConfirmSale = () => {
+    // Check mandatory cash shift open
+    if (!isShiftOpen) {
+      setShowOpenShiftModal(true);
+      return;
+    }
+
     if (allSaleItems.length === 0) {
       alert('Selecione ou digite os códigos dos itens para realizar a venda.');
       return;
@@ -485,16 +512,45 @@ export const PDV: React.FC = () => {
       <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-3.5 shadow-md">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
-            <h1 className="text-base sm:text-lg font-extrabold text-white flex items-center gap-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse" />
-              Lançador Rápido PDV • Pronta-Entrega
-            </h1>
+            <div className="flex items-center gap-2">
+              <h1 className="text-base sm:text-lg font-extrabold text-white flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse" />
+                Lançador Rápido PDV • Pronta-Entrega
+              </h1>
+              {isShiftOpen ? (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-950/60 text-emerald-400 border border-emerald-800/60 font-mono-num">
+                  <Unlock className="w-3 h-3" />
+                  <span>Caixa Aberto (R$ {(currentShift?.initialCash || 0).toFixed(2)})</span>
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setShowOpenShiftModal(true)}
+                  className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40 hover:bg-amber-500/30 transition animate-pulse"
+                >
+                  <Lock className="w-3 h-3" />
+                  <span>Caixa Fechado • Clique para Abrir</span>
+                </button>
+              )}
+            </div>
             <p className="text-xs text-amber-400 font-mono-num mt-0.5">
               1 = Salgados • 2 = Pippos • 3 = Pipoca • 4 = Doritos • 5 = Biscoito
             </p>
           </div>
 
           <div className="flex items-center gap-2">
+            {!isShiftOpen && (
+              <button
+                type="button"
+                id="pdv-open-shift-quick-btn"
+                onClick={() => setShowOpenShiftModal(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-lg text-xs font-bold transition shadow-md active:scale-95"
+              >
+                <KeyRound className="w-3.5 h-3.5" />
+                <span>Abrir Caixa</span>
+              </button>
+            )}
+
             <button
               id="toggle-touch-keypad-btn"
               onClick={() => setShowTouchKeypad(!showTouchKeypad)}
@@ -525,7 +581,7 @@ export const PDV: React.FC = () => {
         <label className="text-xs font-bold text-slate-400 tracking-wider uppercase flex items-center gap-1.5">
           <span>1. Tipo de Venda / Pagamento</span>
         </label>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
           <button
             type="button"
             id="pay-method-fiado"
@@ -566,20 +622,6 @@ export const PDV: React.FC = () => {
           >
             <Banknote className="w-4 h-4" />
             <span>Dinheiro</span>
-          </button>
-
-          <button
-            type="button"
-            id="pay-method-cartao"
-            onClick={() => setPaymentMethod('cartao')}
-            className={`flex items-center justify-center gap-2 p-3 rounded-xl font-bold text-xs sm:text-sm border transition shadow-sm ${
-              paymentMethod === 'cartao'
-                ? 'bg-purple-500 text-slate-950 border-purple-400 ring-2 ring-purple-500/50'
-                : 'bg-slate-900/80 text-slate-300 border-slate-800 hover:bg-slate-800'
-            }`}
-          >
-            <CreditCard className="w-4 h-4" />
-            <span>Cartão</span>
           </button>
         </div>
       </div>
@@ -1335,6 +1377,95 @@ export const PDV: React.FC = () => {
             customerToWhatsApp ? () => setCustomerToWhatsApp(customerToWhatsApp) : undefined
           }
         />
+      )}
+
+      {/* Modal de Abertura Obrigatória de Caixa */}
+      {showOpenShiftModal && (
+        <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
+          <div className="bg-slate-900 border border-amber-500/50 rounded-2xl p-5 max-w-sm w-full shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                <div className="p-1.5 bg-amber-500/20 text-amber-400 rounded-lg">
+                  <KeyRound className="w-4 h-4" />
+                </div>
+                <span>Abertura de Caixa Obrigatória</span>
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowOpenShiftModal(false)}
+                className="text-slate-400 hover:text-white p-1 rounded-lg"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-3 text-xs space-y-1">
+              <div className="flex items-center gap-1.5 font-bold text-amber-300">
+                <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+                <span>Caixa Não Inicializado</span>
+              </div>
+              <p className="text-slate-300 leading-relaxed text-[11px]">
+                Para realizar vendas e operações no sistema, informe o valor de <strong className="text-white">Fundo de Troco Inicial</strong> e abra o turno.
+              </p>
+            </div>
+
+            <form onSubmit={handleConfirmOpenShift} className="space-y-3.5">
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">
+                  Operador Responsável:
+                </label>
+                <div className="w-full bg-slate-950/80 border border-slate-800 rounded-lg px-3 py-2 text-xs font-bold text-white">
+                  {operatorName || 'Operador Padrão'}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">
+                  Fundo de Troco Inicial (R$):
+                </label>
+                <input
+                  type="text"
+                  value={initialCashInput}
+                  onChange={(e) => setInitialCashInput(e.target.value)}
+                  placeholder="Ex: 50.00"
+                  className="w-full bg-slate-950 border border-amber-500/70 rounded-xl px-3 py-2.5 text-base text-amber-400 font-extrabold font-mono-num focus:outline-none focus:border-amber-400"
+                  autoFocus
+                  required
+                />
+                <div className="flex flex-wrap gap-1.5 mt-2">
+                  {['0.00', '20.00', '50.00', '100.00'].map(val => (
+                    <button
+                      key={val}
+                      type="button"
+                      onClick={() => setInitialCashInput(val)}
+                      className="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] font-mono-num font-semibold rounded border border-slate-700 transition"
+                    >
+                      R$ {val}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setShowOpenShiftModal(false)}
+                  className="px-3.5 py-2 text-xs text-slate-400 hover:text-white rounded-lg transition"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  id="pdv-confirm-open-shift-modal-btn"
+                  className="px-5 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs rounded-xl transition shadow-lg flex items-center gap-1.5 active:scale-95"
+                >
+                  <Unlock className="w-4 h-4" />
+                  <span>Abrir Caixa Agora</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
       )}
 
       {/* WhatsApp Modal */}

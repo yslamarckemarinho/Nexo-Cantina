@@ -2,7 +2,6 @@ import React, { useState, useMemo } from 'react';
 import { useCantina } from '../context/CantinaContext';
 import { Customer, DebtItem, PaymentMethod } from '../types';
 import { WhatsAppModal } from './WhatsAppModal';
-import { printCustomerStatement } from '../utils/printReceipt';
 import { 
   Users, 
   Search, 
@@ -22,7 +21,6 @@ import {
   AlertCircle,
   CheckCircle2,
   FileText,
-  Printer,
   Copy,
   Receipt,
   MinusCircle,
@@ -520,24 +518,13 @@ export const CustomerFiados: React.FC = () => {
               </div>
 
               <div className="flex items-center gap-1.5 sm:gap-2">
-                <button
-                  type="button"
-                  id="fiados-print-statement-header-btn"
-                  onClick={() => printCustomerStatement(currentSelectedCustomer, activeCantina)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white rounded-lg text-xs font-semibold border border-slate-700 transition shadow-sm"
-                  title="Imprimir nota / extrato desta conta"
-                >
-                  <Printer className="w-3.5 h-3.5 text-slate-400" />
-                  <span className="hidden sm:inline">Imprimir Nota</span>
-                </button>
-
                 {currentSelectedCustomer.items.some(i => !i.paid) && (
                   <button
                     onClick={() => setCustomerToWhatsApp(currentSelectedCustomer)}
-                    className="flex items-center gap-1 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold transition shadow-sm"
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition shadow-sm active:scale-95"
                   >
                     <MessageSquare className="w-3.5 h-3.5" />
-                    <span>Cobrar WhatsApp</span>
+                    <span>Cobrar pelo WhatsApp</span>
                   </button>
                 )}
 
@@ -791,8 +778,8 @@ export const CustomerFiados: React.FC = () => {
               <label className="block text-xs font-semibold text-slate-400 mb-1.5">
                 Forma de Recebimento:
               </label>
-              <div className="grid grid-cols-3 gap-1.5 text-xs">
-                {(['dinheiro', 'pix', 'cartao'] as PaymentMethod[]).map(m => (
+              <div className="grid grid-cols-2 gap-1.5 text-xs">
+                {(['dinheiro', 'pix'] as PaymentMethod[]).map(m => (
                   <button
                     key={m}
                     type="button"
@@ -867,8 +854,8 @@ export const CustomerFiados: React.FC = () => {
                 <label className="block text-xs text-slate-300 mb-1.5">
                   Forma de Pagamento:
                 </label>
-                <div className="grid grid-cols-3 gap-1.5 text-xs">
-                  {(['dinheiro', 'pix', 'cartao'] as PaymentMethod[]).map(m => (
+                <div className="grid grid-cols-2 gap-1.5 text-xs">
+                  {(['dinheiro', 'pix'] as PaymentMethod[]).map(m => (
                     <button
                       key={m}
                       type="button"
@@ -1090,8 +1077,8 @@ export const CustomerFiados: React.FC = () => {
               <label className="block text-xs font-semibold text-slate-400">
                 Forma de Recebimento:
               </label>
-              <div className="grid grid-cols-3 gap-1.5 text-xs">
-                {(['dinheiro', 'pix', 'cartao'] as PaymentMethod[]).map(m => (
+              <div className="grid grid-cols-2 gap-1.5 text-xs">
+                {(['dinheiro', 'pix'] as PaymentMethod[]).map(m => (
                   <button
                     key={m}
                     type="button"

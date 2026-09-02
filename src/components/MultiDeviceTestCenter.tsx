@@ -39,7 +39,7 @@ export const MultiDeviceTestCenter: React.FC<MultiDeviceTestCenterProps> = ({ on
   const [activeSimulationMode, setActiveSimulationMode] = useState<'overview' | 'live_simulation' | 'detailed_report'>('overview');
 
   const defaultDevices: DeviceProfile[] = [
-    { id: 'dev-01', name: 'Dispositivo 1: Tablet Balcão - Caixa Principal', role: 'PDV Caixa 1', cantina: 'Cantina Nexo Matriz', action: 'Venda Rápida à Vista (Dinheiro/PIX/Cartão)', status: 'synced', latencyMs: 12 },
+    { id: 'dev-01', name: 'Dispositivo 1: Tablet Balcão - Caixa Principal', role: 'PDV Caixa 1', cantina: 'Cantina Nexo Matriz', action: 'Venda Rápida à Vista (Dinheiro e PIX)', status: 'synced', latencyMs: 12 },
     { id: 'dev-02', name: 'Dispositivo 2: Tablet Balcão - Caixa Rápido 2', role: 'PDV Caixa 2 (Fiados)', cantina: 'Cantina Nexo Matriz', action: 'Lançamento de Venda a Prazo (Aluno/Fiado)', status: 'synced', latencyMs: 14 },
     { id: 'dev-03', name: 'Dispositivo 3: Smartphone do Gestor', role: 'Dashboard Mobile', cantina: 'Cantina Nexo Matriz', action: 'Acompanhamento do Fluxo de Caixa em Tempo Real', status: 'synced', latencyMs: 18 },
     { id: 'dev-04', name: 'Dispositivo 4: Tablet da Cozinha / Produção', role: 'Gestão de Estoque', cantina: 'Cantina Nexo Matriz', action: 'Baixa de Insumos e Alertas de Estoque Mínimo', status: 'synced', latencyMs: 16 },

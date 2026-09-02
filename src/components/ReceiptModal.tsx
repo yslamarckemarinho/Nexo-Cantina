@@ -1,9 +1,7 @@
 import React, { useState } from 'react';
 import { Sale, CantinaTenant } from '../types';
 import { NexoLogo } from './NexoLogo';
-import { printSaleReceipt } from '../utils/printReceipt';
 import { 
-  Printer, 
   Copy, 
   Check, 
   MessageSquare, 
@@ -69,10 +67,6 @@ VALOR TOTAL:                R$ ${sale.totalAmount.toFixed(2)}
     }
   };
 
-  const handlePrint = () => {
-    printSaleReceipt(sale, cantina);
-  };
-
   return (
     <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-sm flex items-center justify-center p-3 z-50 overflow-y-auto">
       <div className="bg-slate-900 border border-slate-700 rounded-2xl max-w-md w-full shadow-2xl overflow-hidden my-auto animate-in fade-in zoom-in-95 duration-200">
@@ -81,7 +75,7 @@ VALOR TOTAL:                R$ ${sale.totalAmount.toFixed(2)}
           <div className="flex items-center gap-2">
             <span className="w-2 h-2 rounded-full bg-blue-400" />
             <h3 className="font-bold text-white text-sm">
-              Cupom de Venda • {cantina.name}
+              Comprovante de Venda • {cantina.name}
             </h3>
           </div>
           <button
@@ -92,10 +86,10 @@ VALOR TOTAL:                R$ ${sale.totalAmount.toFixed(2)}
           </button>
         </div>
 
-        {/* Receipt Content - Styled to look like the exact thermal receipt from video */}
+        {/* Receipt Content */}
         <div className="p-4 bg-slate-950/80">
           <div 
-            id="printable-receipt"
+            id="digital-receipt-view"
             className="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-inner text-slate-200 font-mono-num text-xs relative overflow-hidden"
           >
             {/* Watermark in background */}
@@ -204,39 +198,30 @@ VALOR TOTAL:                R$ ${sale.totalAmount.toFixed(2)}
 
             {/* Footer greeting */}
             <div className="text-center pt-2 text-[10px] text-slate-500 italic relative z-10">
-              *** Obrigado pela preferência! ***
+              *** Comprovante Digital • Nexo Cantinas ***
             </div>
           </div>
         </div>
 
-        {/* Modal Action Buttons matching video */}
-        <div className="p-3 bg-slate-800/90 border-t border-slate-700 grid grid-cols-2 sm:grid-cols-3 gap-2">
-          <button
-            id="receipt-print-btn"
-            onClick={handlePrint}
-            className="flex items-center justify-center gap-1.5 py-2 px-3 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-xs font-semibold transition"
-          >
-            <Printer className="w-4 h-4 text-slate-300" />
-            <span>Imprimir</span>
-          </button>
-
+        {/* Modal Action Buttons - WhatsApp and Copy */}
+        <div className="p-3 bg-slate-800/90 border-t border-slate-700 grid grid-cols-1 sm:grid-cols-2 gap-2">
           <button
             id="receipt-copy-btn"
             onClick={handleCopyText}
-            className="flex items-center justify-center gap-1.5 py-2 px-3 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-xs font-semibold transition"
+            className="flex items-center justify-center gap-1.5 py-2.5 px-3 bg-slate-700 hover:bg-slate-600 text-white rounded-xl text-xs font-semibold transition"
           >
             {copied ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4 text-slate-300" />}
-            <span>{copied ? 'Copiado!' : 'Copiar Texto'}</span>
+            <span>{copied ? 'Copiado para Área de Transferência!' : 'Copiar Texto do Comprovante'}</span>
           </button>
 
           {onOpenWhatsApp && (
             <button
               id="receipt-whatsapp-btn"
               onClick={onOpenWhatsApp}
-              className="col-span-2 sm:col-span-1 flex items-center justify-center gap-1.5 py-2 px-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold transition shadow-sm"
+              className="flex items-center justify-center gap-1.5 py-2.5 px-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition shadow-md active:scale-98"
             >
               <MessageSquare className="w-4 h-4" />
-              <span>WhatsApp</span>
+              <span>Enviar pelo WhatsApp</span>
             </button>
           )}
         </div>

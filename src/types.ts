@@ -1,4 +1,4 @@
-export type PaymentMethod = 'a_prazo' | 'fiado' | 'pix' | 'dinheiro' | 'cartao';
+export type PaymentMethod = 'a_prazo' | 'fiado' | 'pix' | 'dinheiro';
 
 export type ProductCategory = 
   | 'Lanches'
@@ -112,7 +112,6 @@ export interface CashShift {
   methodTotals?: {
     pix: number;
     dinheiro: number;
-    cartao: number;
     a_prazo: number;
     totalVendas: number;
     totalLucro?: number;

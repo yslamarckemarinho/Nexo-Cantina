@@ -93,7 +93,6 @@ export const CashFlowReports: React.FC = () => {
     const totals: Record<string, number> = {
       pix: 0,
       dinheiro: 0,
-      cartao: 0,
       a_prazo: 0,
       fiado: 0
     };
@@ -154,7 +153,7 @@ export const CashFlowReports: React.FC = () => {
       insights.push({
         type: 'success',
         title: 'Saúde de Liquidez Excelente',
-        desc: `${(100 - aPrazoShare).toFixed(1)}% das vendas foram liquidadas à vista (PIX, Dinheiro e Cartão).`
+        desc: `${(100 - aPrazoShare).toFixed(1)}% das vendas foram liquidadas à vista (PIX e Dinheiro).`
       });
     }
 
@@ -315,7 +314,7 @@ export const CashFlowReports: React.FC = () => {
         <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">
           Detalhamento por Meio de Pagamento
         </h3>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 flex items-center justify-between">
             <div className="flex items-center gap-2">
               <div className="p-2 bg-emerald-500/20 text-emerald-400 rounded-lg">
@@ -339,20 +338,6 @@ export const CashFlowReports: React.FC = () => {
                 <span className="text-[11px] font-bold text-slate-400 block">Dinheiro</span>
                 <span className="text-sm font-black text-white font-mono-num">
                   R$ {methodTotals.dinheiro.toFixed(2)}
-                </span>
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <div className="p-2 bg-purple-500/20 text-purple-400 rounded-lg">
-                <CreditCard className="w-4 h-4" />
-              </div>
-              <div>
-                <span className="text-[11px] font-bold text-slate-400 block">Cartão</span>
-                <span className="text-sm font-black text-white font-mono-num">
-                  R$ {methodTotals.cartao.toFixed(2)}
                 </span>
               </div>
             </div>

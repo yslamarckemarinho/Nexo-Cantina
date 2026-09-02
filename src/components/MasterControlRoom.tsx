@@ -56,6 +56,12 @@ export const MasterControlRoom: React.FC = () => {
   } = useCantina();
 
   const [masterTab, setMasterTab] = useState<'cantinas' | 'device_tests' | 'logs'>('cantinas');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'alert' | 'healthy' | 'blocked'>('all');
+
+  // Cantina deletion modal state
+  const [cantinaToDelete, setCantinaToDelete] = useState<any | null>(null);
+  const [confirmDeleteInput, setConfirmDeleteInput] = useState('');
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   // Master Password change modal state
   const [showMasterPassModal, setShowMasterPassModal] = useState(false);
@@ -109,30 +115,50 @@ export const MasterControlRoom: React.FC = () => {
   const [editDueDay, setEditDueDay] = useState('10');
   const [editFeeStatus, setEditFeeStatus] = useState<'paid' | 'pending' | 'overdue'>('paid');
 
-  // Global calculations across all tenants
-  const globalTotalSales = cantinas.reduce((sum, c) => {
-    return sum + c.sales.reduce((acc, s) => acc + s.totalAmount, 0);
-  }, 0);
+  // Operational health diagnostics per cantina and network-wide
+  const cantinasWithHealth = cantinas.map(c => {
+    const depletedStock = c.products.filter(p => p.stock <= 0);
+    const lowStock = c.products.filter(p => p.stock > 0 && p.stock <= (p.minStockAlert || 5));
+    const openShift = c.shifts?.find(s => s.isOpen);
+    const isSuspended = c.status === 'suspended';
+    const isOverdue = c.monthlyFeeStatus === 'overdue';
+    const isPending = c.monthlyFeeStatus === 'pending';
 
-  const globalTotalCost = cantinas.reduce((sum, c) => {
-    return sum + c.sales.reduce((acc, s) => acc + (s.totalCost || 0), 0);
-  }, 0);
+    const issuesCount = (depletedStock.length > 0 ? 1 : 0) + (isOverdue ? 1 : 0) + (lowStock.length > 0 ? 1 : 0);
+    const healthLevel = isSuspended ? 'blocked' : (issuesCount > 0 ? 'alert' : 'healthy');
 
-  const globalTotalProfit = globalTotalSales - globalTotalCost;
+    return {
+      ...c,
+      depletedStock,
+      lowStock,
+      openShift,
+      isSuspended,
+      isOverdue,
+      isPending,
+      issuesCount,
+      healthLevel
+    };
+  });
 
-  const globalReceivables = cantinas.reduce((sum, c) => {
-    return sum + c.customers.reduce((acc, cust) => {
-      const debt = cust.items.filter(i => !i.paid).reduce((itemSum, item) => itemSum + item.totalPrice, 0);
-      return acc + debt;
-    }, 0);
+  const globalHealthyCount = cantinasWithHealth.filter(c => c.healthLevel === 'healthy').length;
+  const globalAlertCount = cantinasWithHealth.filter(c => c.healthLevel === 'alert').length;
+  const globalBlockedCount = cantinasWithHealth.filter(c => c.healthLevel === 'blocked').length;
+
+  const totalDepletedProducts = cantinasWithHealth.reduce((sum, c) => sum + c.depletedStock.length, 0);
+  const totalLowStockProducts = cantinasWithHealth.reduce((sum, c) => sum + c.lowStock.length, 0);
+  const totalOpenShifts = cantinasWithHealth.filter(c => !!c.openShift).length;
+
+  // Monthly revenue for the platform SaaS owner (recurring income from canteen fees)
+  const monthlySaaSRevenue = cantinas.reduce((sum, c) => {
+    return sum + (c.monthlyFee !== undefined ? c.monthlyFee : 149.00);
   }, 0);
 
   const globalTotalCustomers = cantinas.reduce((sum, c) => sum + c.customers.length, 0);
 
-  // Monthly revenue for the platform SaaS owner (your recurring income from canteen fees)
-  const monthlySaaSRevenue = cantinas.reduce((sum, c) => {
-    return sum + (c.monthlyFee !== undefined ? c.monthlyFee : 149.00);
-  }, 0);
+  const filteredCantinas = cantinasWithHealth.filter(c => {
+    if (statusFilter === 'all') return true;
+    return c.healthLevel === statusFilter;
+  });
 
   const handleCreateCantinaSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -247,14 +273,14 @@ export const MasterControlRoom: React.FC = () => {
           <div>
             <div className="flex items-center gap-2">
               <h2 className="text-xl sm:text-2xl font-black text-white tracking-tight">
-                Dashboard Executivo Master
+                Central de Monitoramento & Gestão Master
               </h2>
               <span className="px-2.5 py-0.5 bg-gradient-to-r from-cyan-400 to-blue-500 text-slate-950 font-black text-[10px] rounded-full uppercase shadow-sm">
-                Proprietário Nexo
+                Painel Master
               </span>
             </div>
             <p className="text-xs text-slate-300 mt-1">
-              Controle global de assinaturas SaaS, rentabilidade das cantinas em tempo real, bloqueios e segurança.
+              Supervisão em tempo real da saúde operacional das cantinas, diagnóstico de problemas de estoque/caixa e gestão de unidades.
             </p>
           </div>
         </div>
@@ -278,11 +304,12 @@ export const MasterControlRoom: React.FC = () => {
 
           <button
             type="button"
+            id="master-btn-add-cantina"
             onClick={() => setShowNewCantinaModal(true)}
             className="flex items-center gap-1.5 px-4 py-2.5 bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-blue-500 hover:to-cyan-400 text-slate-950 font-black text-xs rounded-xl shadow-lg transition active:scale-95"
           >
             <Plus className="w-4 h-4" />
-            <span>+ Adicionar Cantina</span>
+            <span>+ Criar Nova Cantina</span>
           </button>
 
           <button
@@ -297,13 +324,69 @@ export const MasterControlRoom: React.FC = () => {
         </div>
       </div>
 
-      {/* Primary KPI Row: YOUR SaaS Monthly Revenue + Network Profit Breakdown */}
+      {/* Primary KPI Row: Health, Stock Issues, Active Shifts and SaaS Recurring */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
-        {/* KPI 1: Your Recurring Revenue */}
+        {/* KPI 1: Network Operational Health */}
+        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-lg relative overflow-hidden">
+          <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider flex items-center justify-between">
+            <span>Saúde da Rede de Cantinas</span>
+            <Activity className="w-4 h-4 text-emerald-400" />
+          </div>
+          <div className="text-2xl sm:text-3xl font-black text-white font-mono-num mt-2 flex items-baseline gap-2">
+            <span className="text-emerald-400">{globalHealthyCount}</span>
+            <span className="text-xs text-slate-400 font-normal">/ {cantinas.length} unidades</span>
+          </div>
+          <div className="text-[11px] text-slate-400 mt-1 flex items-center gap-2">
+            <span className="text-emerald-400 font-semibold">{globalHealthyCount} 100% OK</span>
+            {globalAlertCount > 0 && <span>• <strong className="text-amber-400">{globalAlertCount} alerta(s)</strong></span>}
+            {globalBlockedCount > 0 && <span>• <strong className="text-rose-400">{globalBlockedCount} bloqueada(s)</strong></span>}
+          </div>
+        </div>
+
+        {/* KPI 2: Stock Issues Diagnostic */}
+        <div className={`border rounded-3xl p-5 shadow-lg ${
+          totalDepletedProducts > 0 
+            ? 'bg-amber-950/20 border-amber-800/60' 
+            : 'bg-slate-900 border-slate-800'
+        }`}>
+          <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider flex items-center justify-between">
+            <span>Alertas de Estoque Crítico</span>
+            <AlertTriangle className={`w-4 h-4 ${totalDepletedProducts > 0 ? 'text-amber-400' : 'text-slate-500'}`} />
+          </div>
+          <div className="text-2xl sm:text-3xl font-black text-white font-mono-num mt-2">
+            {totalDepletedProducts > 0 ? (
+              <span className="text-amber-400">{totalDepletedProducts} itens zerados</span>
+            ) : (
+              <span className="text-emerald-400">0 em falta</span>
+            )}
+          </div>
+          <div className="text-[11px] text-slate-400 mt-1">
+            {totalLowStockProducts > 0 
+              ? `${totalLowStockProducts} itens próximos do limite mínimo` 
+              : 'Todos os catálogos com estoque regular'}
+          </div>
+        </div>
+
+        {/* KPI 3: Active Shifts / Operational POS */}
+        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-lg">
+          <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider flex items-center justify-between">
+            <span>Caixas & Turnos em Aberto</span>
+            <Server className="w-4 h-4 text-blue-400" />
+          </div>
+          <div className="text-2xl sm:text-3xl font-black text-blue-400 font-mono-num mt-2">
+            {totalOpenShifts}
+            <span className="text-xs text-slate-400 font-normal"> cantina(s) operando</span>
+          </div>
+          <div className="text-[11px] text-slate-400 mt-1">
+            Total de <strong className="text-slate-200">{globalTotalCustomers}</strong> alunos/clientes vinculados
+          </div>
+        </div>
+
+        {/* KPI 4: SaaS Recurring Subscriptions */}
         <div className="bg-gradient-to-br from-indigo-950/80 to-slate-900 border border-indigo-500/40 rounded-3xl p-5 shadow-xl relative overflow-hidden">
           <div className="text-[11px] font-bold text-cyan-300 uppercase tracking-wider flex items-center justify-between">
-            <span>Sua Receita Mensal (SaaS)</span>
-            <CreditCard className="w-4 h-4 text-cyan-400" />
+            <span>Assinaturas SaaS Ativas</span>
+            <ShieldCheck className="w-4 h-4 text-cyan-400" />
           </div>
           <div className="text-2xl sm:text-3xl font-black text-white font-mono-num mt-2">
             R$ {monthlySaaSRevenue.toFixed(2)}
@@ -311,49 +394,7 @@ export const MasterControlRoom: React.FC = () => {
           </div>
           <div className="text-[11px] text-cyan-400/90 font-medium mt-1 flex items-center gap-1">
             <CheckCircle2 className="w-3.5 h-3.5" />
-            <span>{cantinas.length} cantinas pagantes</span>
-          </div>
-        </div>
-
-        {/* KPI 2: Network Real Profit */}
-        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-lg">
-          <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider flex items-center justify-between">
-            <span>Lucro Líquido das Cantinas</span>
-            <TrendingUp className="w-4 h-4 text-emerald-400" />
-          </div>
-          <div className="text-2xl sm:text-3xl font-black text-emerald-400 font-mono-num mt-2">
-            R$ {globalTotalProfit.toFixed(2)}
-          </div>
-          <div className="text-[11px] text-slate-400 mt-1">
-            Volume total faturado: <strong className="text-slate-200">R$ {globalTotalSales.toFixed(2)}</strong>
-          </div>
-        </div>
-
-        {/* KPI 3: Total Clients / Students */}
-        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-lg">
-          <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider flex items-center justify-between">
-            <span>Alunos & Cadastros Ativos</span>
-            <Users className="w-4 h-4 text-blue-400" />
-          </div>
-          <div className="text-2xl sm:text-3xl font-black text-white font-mono-num mt-2">
-            {globalTotalCustomers}
-          </div>
-          <div className="text-[11px] text-slate-400 mt-1">
-            Base acumulada em todas as escolas
-          </div>
-        </div>
-
-        {/* KPI 4: Pending Fiados Across Network */}
-        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-lg">
-          <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider flex items-center justify-between">
-            <span>Fiados Globais a Receber</span>
-            <AlertTriangle className="w-4 h-4 text-amber-400" />
-          </div>
-          <div className="text-2xl sm:text-3xl font-black text-amber-400 font-mono-num mt-2">
-            R$ {globalReceivables.toFixed(2)}
-          </div>
-          <div className="text-[11px] text-amber-400/80 mt-1">
-            Crédito concedido por todas as cantinas
+            <span>{cantinas.filter(c => c.monthlyFeeStatus === 'paid').length} em dia • {cantinas.filter(c => c.monthlyFeeStatus !== 'paid').length} a vencer/pendente</span>
           </div>
         </div>
       </div>
@@ -387,7 +428,7 @@ export const MasterControlRoom: React.FC = () => {
           }`}
         >
           <Store className="w-4 h-4" />
-          <span>Gestão de Cantinas ({cantinas.length})</span>
+          <span>Monitoramento & Gestão ({cantinas.length})</span>
         </button>
 
         <button
@@ -420,40 +461,79 @@ export const MasterControlRoom: React.FC = () => {
         </button>
       </div>
 
-      {/* TAB 1: Tenancy Executive Management Section */}
+      {/* TAB 1: Tenancy Operational Health & Management Section */}
       {masterTab === 'cantinas' && (
       <div className="space-y-4">
         <div className="flex items-center justify-between flex-wrap gap-2">
           <div>
             <h3 className="text-base font-extrabold text-white flex items-center gap-2">
               <Store className="w-5 h-5 text-cyan-400" />
-              <span>Gestão de Cantinas & Rentabilidade ({cantinas.length})</span>
+              <span>Painel de Diagnóstico & Status das Cantinas</span>
             </h3>
             <p className="text-xs text-slate-400">
-              Acompanhe a rentabilidade individual, defina o valor da mensalidade e gerencie o status de acesso de cada cantina.
+              Identifique rapidamente se alguma cantina está com problemas de estoque, caixa ou acesso, e preste suporte imediato.
             </p>
           </div>
 
-          <div className="text-xs text-slate-400 font-semibold bg-slate-900 px-3 py-1.5 rounded-xl border border-slate-800">
-            Status: <span className="text-emerald-400">{cantinas.filter(c => c.status === 'active').length} Ativas</span> • <span className="text-rose-400">{cantinas.filter(c => c.status === 'suspended').length} Bloqueadas</span>
+          {/* Quick Health Filters */}
+          <div className="flex items-center gap-1.5 bg-slate-900 p-1 rounded-xl border border-slate-800 text-xs">
+            <button
+              type="button"
+              onClick={() => setStatusFilter('all')}
+              className={`px-3 py-1.5 rounded-lg font-bold transition ${
+                statusFilter === 'all'
+                  ? 'bg-blue-600 text-white'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              Todas ({cantinas.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setStatusFilter('alert')}
+              className={`px-3 py-1.5 rounded-lg font-bold transition flex items-center gap-1 ${
+                statusFilter === 'alert'
+                  ? 'bg-amber-500 text-slate-950'
+                  : 'text-amber-400 hover:bg-amber-950/40'
+              }`}
+            >
+              <span>Com Alertas</span>
+              <span className="px-1.5 py-0.2 bg-amber-950/50 rounded-full text-[10px]">{globalAlertCount}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setStatusFilter('healthy')}
+              className={`px-3 py-1.5 rounded-lg font-bold transition flex items-center gap-1 ${
+                statusFilter === 'healthy'
+                  ? 'bg-emerald-600 text-white'
+                  : 'text-emerald-400 hover:bg-emerald-950/40'
+              }`}
+            >
+              <span>100% Saudáveis</span>
+              <span className="px-1.5 py-0.2 bg-emerald-950/50 rounded-full text-[10px]">{globalHealthyCount}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setStatusFilter('blocked')}
+              className={`px-3 py-1.5 rounded-lg font-bold transition flex items-center gap-1 ${
+                statusFilter === 'blocked'
+                  ? 'bg-rose-600 text-white'
+                  : 'text-rose-400 hover:bg-rose-950/40'
+              }`}
+            >
+              <span>Bloqueadas</span>
+              <span className="px-1.5 py-0.2 bg-rose-950/50 rounded-full text-[10px]">{globalBlockedCount}</span>
+            </button>
           </div>
         </div>
 
-        {/* Canteen Cards Grid with Financial and Operational Control */}
+        {/* Canteen Cards Grid with Health & Operational Diagnostic */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          {cantinas.map(cantina => {
+          {filteredCantinas.map(cantina => {
             const isActiveTenant = cantina.id === activeCantinaId;
-            const isSuspended = cantina.status === 'suspended';
-
-            // Calculate cantina sales & profit
-            const cantinaSales = cantina.sales.reduce((acc, s) => acc + s.totalAmount, 0);
-            const cantinaCost = cantina.sales.reduce((acc, s) => acc + (s.totalCost || 0), 0);
-            const cantinaProfit = cantinaSales - cantinaCost;
-            const cantinaDebt = cantina.customers.reduce((acc, cust) => {
-              const debt = cust.items.filter(i => !i.paid).reduce((itemSum, item) => itemSum + item.totalPrice, 0);
-              return acc + debt;
-            }, 0);
-
+            const isSuspended = cantina.isSuspended;
+            const hasDepleted = cantina.depletedStock.length > 0;
+            const hasLowStock = cantina.lowStock.length > 0;
             const fee = cantina.monthlyFee !== undefined ? cantina.monthlyFee : 149.00;
             const feeStatus = cantina.monthlyFeeStatus || 'paid';
 
@@ -463,9 +543,11 @@ export const MasterControlRoom: React.FC = () => {
                 className={`bg-slate-900 border rounded-3xl p-5 shadow-xl space-y-4 transition ${
                   isSuspended 
                     ? 'border-rose-900/60 bg-rose-950/10' 
-                    : isActiveTenant 
-                      ? 'border-cyan-500/70 ring-1 ring-cyan-500/30' 
-                      : 'border-slate-800 hover:border-slate-700'
+                    : cantina.healthLevel === 'alert'
+                      ? 'border-amber-700/60 bg-amber-950/10'
+                      : isActiveTenant 
+                        ? 'border-cyan-500/70 ring-1 ring-cyan-500/30' 
+                        : 'border-slate-800 hover:border-slate-700'
                 }`}
               >
                 {/* Header of Card */}
@@ -487,15 +569,24 @@ export const MasterControlRoom: React.FC = () => {
                         <span className="text-[11px] font-bold text-cyan-400 uppercase tracking-wide">
                           {cantina.schoolName}
                         </span>
+
                         {isSuspended ? (
-                          <span className="px-2 py-0.5 bg-rose-500/20 text-rose-300 text-[10px] font-extrabold rounded-full border border-rose-500/40">
+                          <span className="px-2 py-0.5 bg-rose-500/20 text-rose-300 text-[10px] font-extrabold rounded-full border border-rose-500/40 flex items-center gap-1">
+                            <Lock className="w-3 h-3" />
                             ACESSO BLOQUEADO
                           </span>
+                        ) : cantina.healthLevel === 'alert' ? (
+                          <span className="px-2 py-0.5 bg-amber-500/20 text-amber-300 text-[10px] font-extrabold rounded-full border border-amber-500/40 flex items-center gap-1">
+                            <AlertTriangle className="w-3 h-3" />
+                            ALERTA OPERACIONAL
+                          </span>
                         ) : (
-                          <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-300 text-[10px] font-extrabold rounded-full border border-emerald-500/40">
-                            OPERANDO ATIVA
+                          <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-300 text-[10px] font-extrabold rounded-full border border-emerald-500/40 flex items-center gap-1">
+                            <CheckCircle2 className="w-3 h-3" />
+                            OPERAÇÃO 100% SAUDÁVEL
                           </span>
                         )}
+
                         {isActiveTenant && (
                           <span className="px-2 py-0.5 bg-blue-500/20 text-blue-300 text-[10px] font-extrabold rounded-full border border-blue-500/40">
                             Sessão Aberta
@@ -511,12 +602,19 @@ export const MasterControlRoom: React.FC = () => {
                         <span>Responsável: <strong className="text-slate-200">{cantina.ownerName || 'Não inf.'}</strong></span>
                         <span>•</span>
                         <span>Login: <strong className="text-slate-200">{cantina.email || cantina.loginUsername || cantina.subdomain}</strong></span>
+                        {cantina.phone && (
+                          <>
+                            <span>•</span>
+                            <span>Tel: <strong className="text-slate-200">{cantina.phone}</strong></span>
+                          </>
+                        )}
                       </div>
                     </div>
                   </div>
 
                   {/* Quick Block / Unblock Toggle Button */}
                   <button
+                    type="button"
                     onClick={() => updateCantinaStatus(cantina.id, isSuspended ? 'active' : 'suspended')}
                     className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition shadow ${
                       !isSuspended 
@@ -539,38 +637,95 @@ export const MasterControlRoom: React.FC = () => {
                   </button>
                 </div>
 
-                {/* SaaS Monthly Fee + Real-time Profit Grid */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 p-3.5 bg-slate-950 rounded-2xl border border-slate-800/80 font-mono-num text-xs">
-                  {/* Your Monthly Fee */}
-                  <div className="space-y-0.5">
-                    <span className="text-[10px] text-cyan-300 font-semibold uppercase block">Sua Mensalidade</span>
-                    <span className="font-extrabold text-white text-sm">R$ {fee.toFixed(2)}</span>
-                    <div className="flex items-center gap-1 text-[10px]">
-                      {feeStatus === 'paid' && <span className="text-emerald-400 font-bold">● Em dia</span>}
-                      {feeStatus === 'pending' && <span className="text-amber-400 font-bold">● Pendente</span>}
-                      {feeStatus === 'overdue' && <span className="text-rose-400 font-bold">● Atrasada</span>}
+                {/* Real-Time Health & Diagnostic Panel for this Cantina */}
+                <div className="p-3.5 bg-slate-950 rounded-2xl border border-slate-800/80 space-y-2">
+                  <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider flex items-center justify-between">
+                    <span className="flex items-center gap-1.5">
+                      <Activity className="w-3.5 h-3.5 text-cyan-400" />
+                      Diagnóstico do Sistema em Tempo Real
+                    </span>
+                    <span className="text-[10px] text-slate-500 font-mono">
+                      {cantina.products.length} itens cadastrados
+                    </span>
+                  </div>
+
+                  {/* Diagnostic Messages */}
+                  <div className="space-y-1 text-xs">
+                    {isSuspended ? (
+                      <div className="flex items-center gap-2 text-rose-300 bg-rose-950/30 px-2.5 py-1.5 rounded-xl border border-rose-900/50">
+                        <Lock className="w-4 h-4 flex-shrink-0 text-rose-400" />
+                        <span>O acesso ao PDV está suspenso. A cantina não consegue registrar vendas até o desbloqueio.</span>
+                      </div>
+                    ) : hasDepleted ? (
+                      <div className="flex items-start gap-2 text-amber-300 bg-amber-950/30 px-2.5 py-1.5 rounded-xl border border-amber-900/50">
+                        <AlertTriangle className="w-4 h-4 flex-shrink-0 text-amber-400 mt-0.5" />
+                        <div>
+                          <strong className="block font-bold">Atenção: {cantina.depletedStock.length} produto(s) esgotado(s) no estoque!</strong>
+                          <span className="text-[11px] text-amber-200/80">
+                            Itens em falta: {cantina.depletedStock.map(p => p.name).slice(0, 3).join(', ')}{cantina.depletedStock.length > 3 ? '...' : ''}
+                          </span>
+                        </div>
+                      </div>
+                    ) : hasLowStock ? (
+                      <div className="flex items-center gap-2 text-amber-200 bg-amber-950/20 px-2.5 py-1.5 rounded-xl border border-amber-900/30">
+                        <AlertTriangle className="w-4 h-4 flex-shrink-0 text-amber-400" />
+                        <span>{cantina.lowStock.length} item(ns) com estoque baixo (abaixo do alerta mínimo).</span>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2 text-emerald-300 bg-emerald-950/20 px-2.5 py-1.5 rounded-xl border border-emerald-900/30">
+                        <CheckCircle2 className="w-4 h-4 flex-shrink-0 text-emerald-400" />
+                        <span>Catálogo de estoque saudável: todos os produtos com saldo disponível.</span>
+                      </div>
+                    )}
+
+                    {/* Shift diagnostic */}
+                    <div className="flex items-center justify-between text-[11px] text-slate-400 pt-1 px-1">
+                      <span className="flex items-center gap-1.5">
+                        <span className={`w-2 h-2 rounded-full ${cantina.openShift ? 'bg-emerald-400 animate-pulse' : 'bg-slate-600'}`} />
+                        {cantina.openShift ? (
+                          <span className="text-slate-200">
+                            Turno Aberto às <strong className="text-emerald-400">{cantina.openShift.openedAt}</strong> por <strong className="text-white">{cantina.openShift.operator}</strong>
+                          </span>
+                        ) : (
+                          <span className="text-slate-500">Caixa Fechado (nenhum turno ativo no momento)</span>
+                        )}
+                      </span>
+
+                      <span className="text-[11px]">
+                        Mensalidade: <strong className={`font-mono-num ${
+                          feeStatus === 'paid' ? 'text-emerald-400' : feeStatus === 'pending' ? 'text-amber-400' : 'text-rose-400'
+                        }`}>
+                          R$ {fee.toFixed(2)} ({feeStatus === 'paid' ? 'Em dia' : feeStatus === 'pending' ? 'Pendente' : 'Atrasada'})
+                        </strong>
+                      </span>
                     </div>
                   </div>
+                </div>
 
-                  {/* Cantina's Real Net Profit */}
-                  <div className="space-y-0.5">
-                    <span className="text-[10px] text-slate-400 uppercase block">Lucro da Cantina</span>
-                    <span className="font-extrabold text-emerald-400 text-sm">R$ {cantinaProfit.toFixed(2)}</span>
-                    <span className="text-[10px] text-slate-500 block">Vendas: R$ {cantinaSales.toFixed(2)}</span>
+                {/* Operational Summary Grid */}
+                <div className="grid grid-cols-3 gap-2 p-3 bg-slate-950/60 rounded-2xl border border-slate-800/80 font-mono-num text-xs text-center">
+                  <div>
+                    <span className="text-[10px] text-slate-500 uppercase block font-sans">Estoque Total</span>
+                    <span className="font-extrabold text-white text-sm">
+                      {cantina.products.reduce((acc, p) => acc + p.stock, 0)} un
+                    </span>
+                    <span className="text-[10px] text-slate-400 block">{cantina.products.length} itens</span>
                   </div>
 
-                  {/* Fiados at this canteen */}
-                  <div className="space-y-0.5">
-                    <span className="text-[10px] text-slate-400 uppercase block">Fiados Pendentes</span>
-                    <span className="font-extrabold text-amber-400 text-sm">R$ {cantinaDebt.toFixed(2)}</span>
-                    <span className="text-[10px] text-slate-500 block">{cantina.customers.length} alunos</span>
+                  <div>
+                    <span className="text-[10px] text-slate-500 uppercase block font-sans">Alunos Cadastrados</span>
+                    <span className="font-extrabold text-blue-400 text-sm">
+                      {cantina.customers.length}
+                    </span>
+                    <span className="text-[10px] text-slate-400 block">contas ativas</span>
                   </div>
 
-                  {/* Products / Stock */}
-                  <div className="space-y-0.5">
-                    <span className="text-[10px] text-slate-400 uppercase block">Catálogo</span>
-                    <span className="font-extrabold text-slate-200 text-sm">{cantina.products.length} itens</span>
-                    <span className="text-[10px] text-slate-500 block">{cantina.sales.length} vendas reg.</span>
+                  <div>
+                    <span className="text-[10px] text-slate-500 uppercase block font-sans">Vendas Registradas</span>
+                    <span className="font-extrabold text-cyan-400 text-sm">
+                      {cantina.sales.length}
+                    </span>
+                    <span className="text-[10px] text-slate-400 block">cupons emitidos</span>
                   </div>
                 </div>
 
@@ -582,10 +737,10 @@ export const MasterControlRoom: React.FC = () => {
                       type="button"
                       onClick={() => impersonateCantina(cantina.id)}
                       className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold transition shadow"
-                      title="Entrar no PDV e sistema desta cantina para prestar suporte"
+                      title="Entrar no PDV e sistema desta cantina para prestar suporte ou verificar erro"
                     >
                       <ExternalLink className="w-3.5 h-3.5" />
-                      <span>Entrar no PDV</span>
+                      <span>Entrar no PDV (Suporte)</span>
                     </button>
 
                     {/* Copy Credentials Button */}
@@ -593,7 +748,7 @@ export const MasterControlRoom: React.FC = () => {
                       type="button"
                       onClick={() => handleCopyCredentials(cantina)}
                       className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-950/70 hover:bg-emerald-900 border border-emerald-700/60 text-emerald-300 rounded-xl text-xs font-bold transition shadow"
-                      title="Copiar dados de acesso (usuário e senha) para enviar ao responsável"
+                      title="Copiar dados de acesso (usuário e senha) para enviar ao responsável via WhatsApp"
                     >
                       <Share2 className="w-3.5 h-3.5" />
                       <span>Copiar Acesso</span>
@@ -631,20 +786,19 @@ export const MasterControlRoom: React.FC = () => {
                     </button>
                   </div>
 
-                  {cantinas.length > 1 && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (confirm(`Atenção Master: Deseja realmente excluir a cantina "${cantina.name}" e todo seu histórico de forma irreversível?`)) {
-                          deleteCantinaTenant(cantina.id);
-                        }
-                      }}
-                      className="p-2 text-slate-500 hover:text-rose-400 hover:bg-rose-950/40 rounded-xl transition"
-                      title="Excluir Cantina Permanentemente"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  )}
+                  {/* Delete Cantina Button (Opens dedicated deletion modal) */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCantinaToDelete(cantina);
+                      setConfirmDeleteInput('');
+                      setDeleteError(null);
+                    }}
+                    className="p-2 text-slate-400 hover:text-rose-400 hover:bg-rose-950/40 rounded-xl border border-transparent hover:border-rose-900/60 transition"
+                    title={`Excluir a cantina "${cantina.name}" permanentemente`}
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
                 </div>
               </div>
             );
@@ -1201,6 +1355,115 @@ export const MasterControlRoom: React.FC = () => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Safe Cantina Deletion Confirmation */}
+      {cantinaToDelete && (
+        <div className="fixed inset-0 bg-slate-950/90 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in duration-150">
+          <div className="bg-slate-900 border border-rose-600/60 rounded-3xl p-6 max-w-md w-full shadow-2xl space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="p-2 bg-rose-500/20 text-rose-400 rounded-xl">
+                  <Trash2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-white">Excluir Cantina Permanentemente</h3>
+                  <span className="text-[10px] text-rose-400 font-bold uppercase">Ação Irreversível de Administrador</span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setCantinaToDelete(null);
+                  setConfirmDeleteInput('');
+                  setDeleteError(null);
+                }}
+                className="text-slate-400 hover:text-white"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-3.5 bg-rose-950/40 border border-rose-900/60 rounded-2xl space-y-2 text-xs text-slate-300">
+              <p>
+                Você está prestes a apagar a cantina <strong>{cantinaToDelete.name}</strong> ({cantinaToDelete.schoolName}).
+              </p>
+              <div className="bg-slate-950/80 p-2.5 rounded-xl space-y-1 font-mono-num text-[11px] text-slate-400">
+                <div className="flex justify-between">
+                  <span>Itens no estoque:</span>
+                  <strong className="text-white">{cantinaToDelete.products.length} cadastrados</strong>
+                </div>
+                <div className="flex justify-between">
+                  <span>Alunos & Clientes:</span>
+                  <strong className="text-white">{cantinaToDelete.customers.length} cadastrados</strong>
+                </div>
+                <div className="flex justify-between">
+                  <span>Vendas e Cupons:</span>
+                  <strong className="text-white">{cantinaToDelete.sales.length} emitidos</strong>
+                </div>
+              </div>
+              <p className="text-rose-300 text-[11px] font-semibold">
+                Todos os dados, turnos e históricos desta unidade serão destruídos permanentemente.
+              </p>
+            </div>
+
+            {deleteError && (
+              <div className="p-3 bg-rose-950/70 border border-rose-800 text-rose-300 text-xs rounded-xl flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 flex-shrink-0 text-rose-400" />
+                <span>{deleteError}</span>
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <label className="block text-xs font-bold text-slate-200">
+                Para confirmar, digite <span className="text-rose-400 font-mono underline">EXCLUIR</span> no campo abaixo:
+              </label>
+              <input
+                type="text"
+                value={confirmDeleteInput}
+                onChange={(e) => {
+                  setConfirmDeleteInput(e.target.value);
+                  setDeleteError(null);
+                }}
+                placeholder="EXCLUIR"
+                className="w-full bg-slate-950 border border-rose-700/80 rounded-xl px-3.5 py-2.5 text-xs sm:text-sm text-white focus:outline-none focus:border-rose-500 font-mono tracking-wider font-bold"
+                autoFocus
+              />
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setCantinaToDelete(null);
+                  setConfirmDeleteInput('');
+                  setDeleteError(null);
+                }}
+                className="px-3.5 py-2 text-xs text-slate-400 hover:text-white"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                id="btn-confirm-delete-cantina"
+                onClick={() => {
+                  if (confirmDeleteInput.trim() !== 'EXCLUIR') {
+                    setDeleteError('Digite exatamente a palavra "EXCLUIR" em maiúsculas para autorizar a exclusão.');
+                    return;
+                  }
+                  deleteCantinaTenant(cantinaToDelete.id);
+                  setCantinaToDelete(null);
+                  setConfirmDeleteInput('');
+                  setDeleteError(null);
+                }}
+                className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white font-black text-xs rounded-xl transition shadow flex items-center gap-1.5"
+              >
+                <Trash2 className="w-4 h-4" />
+                <span>Confirmar e Excluir Unidade</span>
+              </button>
+            </div>
           </div>
         </div>
       )}
