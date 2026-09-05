@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { useCantina } from '../context/CantinaContext';
 import { Product, ProductCategory } from '../types';
+import { ParentMenuModal } from './ParentMenuModal';
 import { 
   Package, 
   Search, 
@@ -17,7 +18,8 @@ import {
   Filter,
   CheckCircle,
   Clock,
-  Sparkles
+  Sparkles,
+  UtensilsCrossed
 } from 'lucide-react';
 
 const CATEGORIES: ProductCategory[] = [
@@ -51,6 +53,7 @@ export const StockManager: React.FC = () => {
 
   // Modal State
   const [showProductModal, setShowProductModal] = useState(false);
+  const [showParentMenuModal, setShowParentMenuModal] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
 
   // Form fields
@@ -205,15 +208,28 @@ export const StockManager: React.FC = () => {
           </div>
         </div>
 
-        <button
-          type="button"
-          id="stock-add-product-btn"
-          onClick={handleOpenNewProduct}
-          className="flex items-center gap-1.5 px-4 py-2 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-bold text-xs rounded-xl shadow-md transition"
-        >
-          <Plus className="w-4 h-4" />
-          <span>+ Produto</span>
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            id="stock-parent-menu-btn"
+            onClick={() => setShowParentMenuModal(true)}
+            className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl shadow-md transition active:scale-95 cursor-pointer"
+            title="Gerar e enviar cardápio atualizado aos pais via WhatsApp"
+          >
+            <UtensilsCrossed className="w-4 h-4" />
+            <span>Cardápio dos Pais</span>
+          </button>
+
+          <button
+            type="button"
+            id="stock-add-product-btn"
+            onClick={handleOpenNewProduct}
+            className="flex items-center gap-1.5 px-4 py-2 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-bold text-xs rounded-xl shadow-md transition"
+          >
+            <Plus className="w-4 h-4" />
+            <span>+ Produto</span>
+          </button>
+        </div>
       </div>
 
       {/* Metrics Row matching video exact badges */}
@@ -582,6 +598,12 @@ export const StockManager: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Quick Menu for Parents WhatsApp Modal */}
+      <ParentMenuModal
+        isOpen={showParentMenuModal}
+        onClose={() => setShowParentMenuModal(false)}
+      />
     </div>
   );
 };

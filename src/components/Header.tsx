@@ -17,8 +17,10 @@ import {
   AlertCircle,
   X,
   Edit2,
-  Check
+  Check,
+  Database
 } from 'lucide-react';
+import { AutoBackupModal } from './AutoBackupModal';
 
 export const Header: React.FC = () => {
   const { 
@@ -39,6 +41,7 @@ export const Header: React.FC = () => {
   const [showCantinaSwitcher, setShowCantinaSwitcher] = useState(false);
   const [showSecretMasterModal, setShowSecretMasterModal] = useState(false);
   const [showOperatorModal, setShowOperatorModal] = useState(false);
+  const [showBackupModal, setShowBackupModal] = useState(false);
   const [newOperatorInput, setNewOperatorInput] = useState('');
   const [secretPasswordInput, setSecretPasswordInput] = useState('');
   const [secretError, setSecretError] = useState('');
@@ -231,6 +234,22 @@ export const Header: React.FC = () => {
                 <span className="bg-blue-900/60 text-blue-300 text-[10px] px-1.5 py-0.2 rounded border border-blue-700/50 font-semibold">Google</span>
               )}
             </button>
+
+            {!isMasterMode && (
+              <button
+                type="button"
+                id="header-backup-btn"
+                onClick={() => setShowBackupModal(true)}
+                className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700/80 px-2.5 py-1 rounded-xl border border-slate-700/80 text-slate-300 text-xs transition active:scale-95 group cursor-pointer"
+                title="Central de Backup Automático & Nuvem"
+              >
+                <Database className="w-3.5 h-3.5 text-blue-400 group-hover:text-cyan-300" />
+                <span className="hidden md:inline font-semibold text-slate-200">
+                  Backup Auto
+                </span>
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              </button>
+            )}
 
             <button
               id="header-logout-btn"
@@ -462,6 +481,12 @@ export const Header: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Central de Backup Automático & Nuvem Modal */}
+      <AutoBackupModal
+        isOpen={showBackupModal}
+        onClose={() => setShowBackupModal(false)}
+      />
     </header>
   );
 };

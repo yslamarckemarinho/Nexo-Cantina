@@ -147,6 +147,9 @@ export interface CantinaTenant {
   monthlyFeeStatus?: 'paid' | 'pending' | 'overdue';
   status: 'active' | 'suspended' | 'maintenance';
   lastBackupAt?: string;
+  autoBackupEnabled?: boolean;
+  autoBackupIntervalMinutes?: number;
+  lastAutoBackupAt?: string;
   products: Product[];
   customers: Customer[];
   sales: Sale[];
@@ -197,5 +200,22 @@ export interface TestSuiteResponse {
   failedCount: number;
   overallStatus: string;
   tests: TestResultItem[];
+}
+
+export interface BackupSnapshot {
+  id: string;
+  cantinaId: string;
+  cantinaName: string;
+  timestamp: string;
+  formattedTime: string;
+  formattedDate: string;
+  trigger: 'automatico' | 'turno_11h' | 'turno_17h' | 'fechamento_caixa' | 'manual';
+  productsCount: number;
+  customersCount: number;
+  salesCount: number;
+  shiftsCount: number;
+  totalPendingFiado: number;
+  sizeBytes: number;
+  data: CantinaTenant;
 }
 

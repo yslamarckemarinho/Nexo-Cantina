@@ -10,10 +10,12 @@ import {
   CashMovement, 
   CashShift, 
   AuditSecurityLog,
-  TestSuiteResponse
+  TestSuiteResponse,
+  BackupSnapshot
 } from '../types';
 import { INITIAL_CANTINAS, INITIAL_SECURITY_LOGS, DEFAULT_STARTER_PRODUCTS } from '../data/initialData';
 import confetti from 'canvas-confetti';
+import { exportSnapshotSpreadsheet } from '../utils/exportHelpers';
 
 interface CantinaContextType {
   cantinas: CantinaTenant[];
@@ -103,6 +105,13 @@ interface CantinaContextType {
   exportSalesCSV: () => void;
   restoreFromJSON: (jsonContent: string) => { success: boolean; message: string };
   resetSystemToZero: () => void;
+
+  // Auto Backup System
+  autoBackupSnapshots: BackupSnapshot[];
+  triggerManualBackup: (triggerLabel?: string) => Promise<BackupSnapshot | null>;
+  restoreFromSnapshot: (snapshotId: string) => Promise<{ success: boolean; message: string }>;
+  downloadSnapshotJSON: (snapshot: BackupSnapshot) => void;
+  toggleAutoBackup: (enabled: boolean) => void;
   
   // Master Admin operations
   createCantinaTenant: (data: { 
@@ -226,6 +235,49 @@ export const CantinaProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const [activeTab, setActiveTab] = useState<'pdv' | 'fiados' | 'estoque' | 'caixa' | 'backup' | 'master'>('pdv');
   const [securityLogs, setSecurityLogs] = useState<AuditSecurityLog[]>(INITIAL_SECURITY_LOGS);
+
+  // Auto-backup snapshots list
+  const [autoBackupSnapshots, setAutoBackupSnapshots] = useState<BackupSnapshot[]>(() => {
+    try {
+      const stored = localStorage.getItem(`nexo_snapshots_${activeCantinaId}`);
+      if (stored) return JSON.parse(stored);
+    } catch (e) {
+      // ignore
+    }
+    return [];
+  });
+
+  // Load and refresh snapshots when active canteen changes
+  useEffect(() => {
+    if (!activeCantinaId) return;
+    try {
+      const stored = localStorage.getItem(`nexo_snapshots_${activeCantinaId}`);
+      if (stored) {
+        setAutoBackupSnapshots(JSON.parse(stored));
+      } else {
+        setAutoBackupSnapshots([]);
+      }
+    } catch (e) {
+      setAutoBackupSnapshots([]);
+    }
+
+    // Also fetch server snapshots for this canteen
+    fetch(`/api/backups?cantinaId=${activeCantinaId}`)
+      .then(res => res.json())
+      .then(data => {
+        if (data && data.backups && Array.isArray(data.backups)) {
+          setAutoBackupSnapshots(prev => {
+            const map = new Map<string, BackupSnapshot>();
+            data.backups.forEach((b: BackupSnapshot) => map.set(b.id, b));
+            prev.forEach(b => map.set(b.id, b));
+            return Array.from(map.values()).sort(
+              (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+            );
+          });
+        }
+      })
+      .catch(() => {});
+  }, [activeCantinaId]);
 
   // Sync global database to local storage
   useEffect(() => {
@@ -1314,6 +1366,12 @@ export const CantinaProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }));
 
     logSecurityAction(`Fechamento de Caixa do Turno realizado por ${authData.operatorName || 'Operador'}`, activeCantina.name, 'sucesso');
+    
+    // Automatic backup snapshot on shift close
+    if (activeCantina) {
+      createBackupSnapshot(activeCantina, 'fechamento_caixa');
+    }
+
     return closedShiftObj;
   };
 
@@ -1404,21 +1462,13 @@ export const CantinaProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const exportSalesCSV = () => {
     if (!activeCantina) return;
-    const headers = "Data,Hora,Tipo,Cliente,Itens,Total (R$),Custo (R$),Lucro (R$),Operador\n";
-    const rows = activeCantina.sales.map(s => {
-      const itemDesc = s.items.map(i => `${i.quantity}x ${i.name}`).join(' | ');
-      const profit = (s.totalAmount - s.totalCost).toFixed(2);
-      return `"${s.formattedDate}","${s.formattedTime}","${s.paymentMethod.toUpperCase()}","${s.customerName || 'Balcão / Anônimo'}","${itemDesc}","${s.totalAmount.toFixed(2)}","${s.totalCost.toFixed(2)}","${profit}","${s.operatorName}"`;
-    }).join("\n");
-
-    const blob = new Blob([headers + rows], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.setAttribute("href", url);
-    link.setAttribute("download", `vendas_${activeCantina.subdomain}_${new Date().toISOString().split('T')[0]}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
+    exportSnapshotSpreadsheet({
+      data: activeCantina,
+      trigger: 'manual',
+      formattedDate: new Date().toLocaleDateString('pt-BR'),
+      formattedTime: new Date().toLocaleTimeString('pt-BR')
+    });
+    logSecurityAction(`Planilha Excel da cantina baixada com sucesso`, activeCantina.name, 'sucesso');
   };
 
   const restoreFromJSON = (jsonContent: string) => {
@@ -1443,6 +1493,166 @@ export const CantinaProvider: React.FC<{ children: React.ReactNode }> = ({ child
       return { success: false, message: `Erro ao processar JSON: ${e.message}` };
     }
   };
+
+  // --- Auto Backup Snapshots Implementation ---
+  const createBackupSnapshot = async (
+    cantinaToBackup: CantinaTenant, 
+    trigger: 'automatico' | 'turno_11h' | 'turno_17h' | 'fechamento_caixa' | 'manual' = 'automatico'
+  ): Promise<BackupSnapshot> => {
+    const now = new Date();
+    const dateStr = now.toLocaleDateString('pt-BR');
+    const timeStr = now.toLocaleTimeString('pt-BR');
+    const jsonStr = JSON.stringify(cantinaToBackup);
+    const sizeBytes = new Blob([jsonStr]).size;
+
+    const totalPendingFiado = cantinaToBackup.customers.reduce((acc, c) => {
+      return acc + c.items.filter(i => !i.paid).reduce((s, it) => s + it.totalPrice, 0);
+    }, 0);
+
+    const snapshot: BackupSnapshot = {
+      id: `snap_${cantinaToBackup.id}_${Date.now()}`,
+      cantinaId: cantinaToBackup.id,
+      cantinaName: cantinaToBackup.name,
+      timestamp: now.toISOString(),
+      formattedDate: dateStr,
+      formattedTime: timeStr,
+      trigger,
+      productsCount: cantinaToBackup.products.length,
+      customersCount: cantinaToBackup.customers.length,
+      salesCount: cantinaToBackup.sales.length,
+      shiftsCount: cantinaToBackup.shifts.length,
+      totalPendingFiado,
+      sizeBytes,
+      data: cantinaToBackup
+    };
+
+    // 1. Salva no LocalStorage da cantina (mantém os últimos 10)
+    try {
+      const key = `nexo_snapshots_${cantinaToBackup.id}`;
+      const raw = localStorage.getItem(key);
+      let existing: BackupSnapshot[] = raw ? JSON.parse(raw) : [];
+      existing = [snapshot, ...existing.filter(s => s.id !== snapshot.id)].slice(0, 10);
+      localStorage.setItem(key, JSON.stringify(existing));
+      setAutoBackupSnapshots(existing);
+    } catch (err) {
+      // quota or private mode
+    }
+
+    // 2. Salva no servidor de sincronização
+    try {
+      await fetch('/api/backups/snapshot', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(snapshot)
+      });
+    } catch (e) {
+      // offline
+    }
+
+    // 3. Atualiza timestamps na cantina
+    setCantinas(prev => prev.map(c => {
+      if (c.id !== cantinaToBackup.id) return c;
+      return {
+        ...c,
+        lastAutoBackupAt: now.toISOString(),
+        lastBackupAt: now.toISOString()
+      };
+    }));
+
+    const triggerLabel = 
+      trigger === 'turno_11h' ? 'Turno 11:00 (Manhã)' :
+      trigger === 'turno_17h' ? 'Turno 17:00 (Tarde)' :
+      trigger === 'fechamento_caixa' ? 'Fechamento de Caixa' :
+      trigger === 'manual' ? 'Manual' : 'Automático';
+
+    logSecurityAction(`Backup de Segurança (${triggerLabel}) gravado com sucesso [${(sizeBytes / 1024).toFixed(1)} KB]`, cantinaToBackup.name, 'sucesso');
+    return snapshot;
+  };
+
+  const triggerManualBackup = async (triggerLabel: 'manual' | 'turno_11h' | 'turno_17h' | 'fechamento_caixa' = 'manual'): Promise<BackupSnapshot | null> => {
+    if (!activeCantina) return null;
+    const snap = await createBackupSnapshot(activeCantina, triggerLabel as any);
+    logSecurityAction(`Backup (${triggerLabel}) acionado por ${authData.operatorName || 'Operador'}`, activeCantina.name, 'sucesso');
+    return snap;
+  };
+
+  const restoreFromSnapshot = async (snapshotId: string): Promise<{ success: boolean; message: string }> => {
+    let target = autoBackupSnapshots.find(s => s.id === snapshotId);
+    if (!target || !target.data) {
+      try {
+        const res = await fetch(`/api/backups/${snapshotId}`);
+        const json = await res.json();
+        if (json && json.backup) target = json.backup;
+      } catch (e) {
+        // offline
+      }
+    }
+
+    if (!target || !target.data) {
+      return { success: false, message: 'Snapshot de backup não encontrado ou dados corrompidos.' };
+    }
+
+    const restored: CantinaTenant = target.data;
+    setCantinas(prev => prev.map(c => c.id === restored.id ? restored : c));
+    logSecurityAction(`Snapshot restaurado: ${target.formattedDate} ${target.formattedTime}`, restored.name, 'sucesso');
+    return { success: true, message: `Cantina "${restored.name}" restaurada para o ponto de ${target.formattedDate} às ${target.formattedTime}!` };
+  };
+
+  const downloadSnapshotJSON = (snapshot: BackupSnapshot) => {
+    const dataToExport = snapshot.data || activeCantina;
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(dataToExport, null, 2));
+    const link = document.createElement('a');
+    link.setAttribute("href", dataStr);
+    const dateFormatted = snapshot.formattedDate.replace(/\//g, '-');
+    const timeFormatted = snapshot.formattedTime.replace(/:/g, '-');
+    link.setAttribute("download", `backup_${snapshot.cantinaId}_${dateFormatted}_${timeFormatted}.json`);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  };
+
+  const toggleAutoBackup = (enabled: boolean) => {
+    if (!activeCantina) return;
+    updateCantinaSettings({ autoBackupEnabled: enabled });
+  };
+
+  // Timer de Backup Automático Programado por Turnos (às 11:00 e às 17:00)
+  useEffect(() => {
+    if (!activeCantina) return;
+    const isEnabled = activeCantina.autoBackupEnabled !== false;
+    if (!isEnabled) return;
+
+    const checkShiftSchedule = () => {
+      if (!activeCantina) return;
+      const now = new Date();
+      const currentHour = now.getHours();
+      const currentMinute = now.getMinutes();
+      const todayDateStr = now.toISOString().split('T')[0];
+
+      // Turno 1: 11:00 (Janela de 11:00 a 11:04)
+      if (currentHour === 11 && currentMinute <= 4) {
+        const slotKey = `nexo_backup_shift_11h_${activeCantina.id}_${todayDateStr}`;
+        if (!localStorage.getItem(slotKey)) {
+          localStorage.setItem(slotKey, new Date().toISOString());
+          createBackupSnapshot(activeCantina, 'turno_11h');
+        }
+      }
+
+      // Turno 2: 17:00 (Janela de 17:00 a 17:04)
+      if (currentHour === 17 && currentMinute <= 4) {
+        const slotKey = `nexo_backup_shift_17h_${activeCantina.id}_${todayDateStr}`;
+        if (!localStorage.getItem(slotKey)) {
+          localStorage.setItem(slotKey, new Date().toISOString());
+          createBackupSnapshot(activeCantina, 'turno_17h');
+        }
+      }
+    };
+
+    checkShiftSchedule();
+    const interval = setInterval(checkShiftSchedule, 30000);
+
+    return () => clearInterval(interval);
+  }, [activeCantina]);
 
   // Master Tenant Operations
   const createCantinaTenant = (data: { 
@@ -1635,6 +1845,11 @@ export const CantinaProvider: React.FC<{ children: React.ReactNode }> = ({ child
         exportSalesCSV,
         restoreFromJSON,
         resetSystemToZero,
+        autoBackupSnapshots,
+        triggerManualBackup,
+        restoreFromSnapshot,
+        downloadSnapshotJSON,
+        toggleAutoBackup,
         createCantinaTenant,
         updateCantinaStatus,
         deleteCantinaTenant,

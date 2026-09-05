@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useCantina } from '../context/CantinaContext';
 import { Sale, PaymentMethod, CashMovement } from '../types';
 import { ReceiptModal } from './ReceiptModal';
@@ -14,7 +14,6 @@ import {
   Lock, 
   Unlock, 
   FileSpreadsheet, 
-  Printer, 
   Sparkles, 
   Receipt, 
   Zap, 
@@ -22,8 +21,16 @@ import {
   CreditCard, 
   FileText,
   Search,
-  Bot
+  Bot,
+  MessageSquare,
+  Copy,
+  Check,
+  Share2,
+  Smartphone,
+  Printer,
+  X
 } from 'lucide-react';
+import { ReportModal } from './ReportModal';
 
 export const CashFlowReports: React.FC = () => {
   const { 
@@ -52,6 +59,22 @@ export const CashFlowReports: React.FC = () => {
   // Shift opening modal
   const [showOpenShiftModal, setShowOpenShiftModal] = useState(false);
   const [initialTroco, setInitialTroco] = useState('50.00');
+  const [showReportModal, setShowReportModal] = useState(false);
+
+  // WhatsApp Executive Summary & Shift Closing Modal
+  const [showWhatsAppSummaryModal, setShowWhatsAppSummaryModal] = useState(false);
+  const [whatsappPhone, setWhatsappPhone] = useState(activeCantina.phone || '');
+  const [actualCountedCash, setActualCountedCash] = useState('');
+  const [shiftClosingNotes, setShiftClosingNotes] = useState('');
+  const [copiedWhatsAppText, setCopiedWhatsAppText] = useState(false);
+  const [shiftClosedJustNow, setShiftClosedJustNow] = useState(false);
+
+  // Keep whatsappPhone updated when active cantina changes
+  useEffect(() => {
+    if (activeCantina?.phone) {
+      setWhatsappPhone(activeCantina.phone);
+    }
+  }, [activeCantina?.id, activeCantina?.phone]);
 
   const currentShift = activeCantina.shifts.length > 0 ? activeCantina.shifts[0] : null;
   const isShiftOpen = currentShift?.isOpen ?? false;
@@ -135,6 +158,116 @@ export const CashFlowReports: React.FC = () => {
 
     return opening + cashSales + debtSettlements + suprimentos - sangrias;
   }, [currentShift, methodTotals.dinheiro, shiftMovements]);
+
+  const totalSuprimentos = useMemo(() => {
+    return shiftMovements.filter(m => m.type === 'suprimento').reduce((acc, m) => acc + m.amount, 0);
+  }, [shiftMovements]);
+
+  const totalSangrias = useMemo(() => {
+    return shiftMovements.filter(m => m.type === 'sangria' || m.type === 'saida').reduce((acc, m) => acc + m.amount, 0);
+  }, [shiftMovements]);
+
+  const debtSettlementsCash = useMemo(() => {
+    return shiftMovements
+      .filter(m => (m.type === 'quitacao_fiado' || m.type === 'quitacao_prazo') && m.paymentMethod === 'dinheiro')
+      .reduce((acc, m) => acc + m.amount, 0);
+  }, [shiftMovements]);
+
+  // Total pending fiados across all customers for this canteen
+  const totalPendingFiados = useMemo(() => {
+    return activeCantina.customers.reduce((acc, cust) => {
+      const unpaid = cust.items.filter(i => !i.paid).reduce((sum, i) => sum + i.totalPrice, 0);
+      return acc + unpaid;
+    }, 0);
+  }, [activeCantina.customers]);
+
+  const debtorsCount = useMemo(() => {
+    return activeCantina.customers.filter(c => c.items.some(i => !i.paid)).length;
+  }, [activeCantina.customers]);
+
+  // Generator for WhatsApp Executive Summary Text
+  const generateExecutiveSummaryText = () => {
+    const now = new Date();
+    const dataStr = selectedDate === 'todas' ? now.toLocaleDateString('pt-BR') : selectedDate.split('-').reverse().join('/');
+    const horaStr = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    const trocoInicial = currentShift?.openingBalance || 0;
+    const aPrazoTotal = methodTotals.a_prazo || 0;
+    const actualNum = parseFloat(actualCountedCash.replace(',', '.')) || expectedDrawerCash;
+    const diff = Math.round((actualNum - expectedDrawerCash) * 100) / 100;
+
+    let conferidoBlock = '';
+    if (actualCountedCash) {
+      if (diff === 0) {
+        conferidoBlock = `\n✅ *Conferência de Gaveta:* R$ ${actualNum.toFixed(2)} (Bateu Exato! 100% Ok)`;
+      } else if (diff > 0) {
+        conferidoBlock = `\n⚠️ *Conferência de Gaveta:* R$ ${actualNum.toFixed(2)} (+ R$ ${diff.toFixed(2)} Sobra)`;
+      } else {
+        conferidoBlock = `\n🚨 *Conferência de Gaveta:* R$ ${actualNum.toFixed(2)} (- R$ ${Math.abs(diff).toFixed(2)} Falta)`;
+      }
+    }
+
+    const obsBlock = shiftClosingNotes.trim() ? `\n📝 *Observações:* ${shiftClosingNotes.trim()}\n` : '';
+
+    return `📊 *FECHAMENTO & RESUMO DE CAIXA*
+🏫 *${activeCantina.name}*
+${activeCantina.schoolName ? `📍 ${activeCantina.schoolName}\n` : ''}📅 *Data:* ${dataStr} • 🕒 *Hora:* ${horaStr}
+👤 *Operador:* ${operatorName || activeCantina.operatorName || 'Caixa'}
+
+💵 *FATURAMENTO DO PERÍODO:*
+• Total de Vendas: *R$ ${totalSalesDay.toFixed(2)}* (${filteredSales.length} cupons)
+• PIX (À Vista): R$ ${methodTotals.pix.toFixed(2)}
+• Dinheiro (À Vista): R$ ${methodTotals.dinheiro.toFixed(2)}
+• A Prazo (Fiado Alunos): R$ ${aPrazoTotal.toFixed(2)}
+• Lucro Bruto Estimado: R$ ${totalProfitDay.toFixed(2)} (${profitMarginPercent.toFixed(1)}%)
+
+🏦 *MOVIMENTAÇÕES NA GAVETA (ESPÉCIE):*
+• Fundo de Troco Inicial: R$ ${trocoInicial.toFixed(2)}
+• (+) Vendas em Dinheiro: R$ ${methodTotals.dinheiro.toFixed(2)}${debtSettlementsCash > 0 ? `\n• (+) Baixas Fiado Dinheiro: R$ ${debtSettlementsCash.toFixed(2)}` : ''}${totalSuprimentos > 0 ? `\n• (+) Suprimentos de Troco: R$ ${totalSuprimentos.toFixed(2)}` : ''}${totalSangrias > 0 ? `\n• (-) Sangrias / Retiradas: R$ ${totalSangrias.toFixed(2)}` : ''}
+----------------------------------------
+💵 *DINHEIRO FÍSICO ESPERADO: R$ ${expectedDrawerCash.toFixed(2)}*${conferidoBlock}
+
+📋 *CADERNETA DE FIADOS:*
+• Saldo Total a Receber: *R$ ${totalPendingFiados.toFixed(2)}* (${debtorsCount} alunos/clientes devedores)${obsBlock}
+_Relatório emitido via Nexo Cantinas_`;
+  };
+
+  const handleSendWhatsApp = () => {
+    const text = generateExecutiveSummaryText();
+    const clean = whatsappPhone.replace(/\D/g, '');
+    const fullPhone = clean ? (clean.startsWith('55') ? clean : `55${clean}`) : '';
+    const url = fullPhone
+      ? `https://api.whatsapp.com/send?phone=${fullPhone}&text=${encodeURIComponent(text)}`
+      : `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`;
+    window.open(url, '_blank');
+  };
+
+  const handleCopySummary = () => {
+    const text = generateExecutiveSummaryText();
+    navigator.clipboard.writeText(text);
+    setCopiedWhatsAppText(true);
+    setTimeout(() => setCopiedWhatsAppText(false), 3000);
+  };
+
+  const handleExecuteShiftClose = () => {
+    const actualNum = parseFloat(actualCountedCash.replace(',', '.')) || expectedDrawerCash;
+    closeCurrentShift({
+      closingBalanceActual: actualNum,
+      closingBalanceExpected: expectedDrawerCash,
+      closingNotes: shiftClosingNotes.trim() || undefined,
+      methodTotals: {
+        pix: methodTotals.pix || 0,
+        dinheiro: methodTotals.dinheiro || 0,
+        cartao: 0,
+        a_prazo: methodTotals.a_prazo || 0,
+        totalVendas: totalSalesDay,
+        totalLucro: totalProfitDay,
+        totalSuprimentos: totalSuprimentos,
+        totalSangrias: totalSangrias,
+        salesCount: filteredSales.length
+      }
+    });
+    setShiftClosedJustNow(true);
+  };
 
   // Intelligent Support & Diagnostic Engine (Requested by user in Question 2)
   const diagnosticInsights = useMemo(() => {
@@ -249,11 +382,34 @@ export const CashFlowReports: React.FC = () => {
 
           <button
             onClick={exportSalesCSV}
-            className="flex items-center gap-1.5 px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-semibold border border-slate-700 transition"
-            title="Exportar planilha Excel (.CSV)"
+            className="flex items-center gap-1.5 px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-semibold border border-slate-700 transition cursor-pointer"
+            title="Exportar planilha Excel (.CSV) humanizada"
           >
             <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
-            <span className="hidden sm:inline">Exportar CSV</span>
+            <span className="hidden sm:inline">Exportar Excel</span>
+          </button>
+
+          <button
+            onClick={() => setShowReportModal(true)}
+            className="flex items-center gap-1.5 px-3 py-2 bg-slate-800 hover:bg-slate-700 text-blue-300 rounded-xl text-xs font-semibold border border-slate-700 transition cursor-pointer"
+            title="Visualizar e Imprimir Relatório em PDF"
+          >
+            <Printer className="w-4 h-4 text-blue-400" />
+            <span className="hidden sm:inline">Relatório / PDF</span>
+          </button>
+
+          <button
+            onClick={() => {
+              setActualCountedCash(expectedDrawerCash.toFixed(2));
+              setShiftClosedJustNow(false);
+              setShowWhatsAppSummaryModal(true);
+            }}
+            id="btn-whatsapp-executive-summary"
+            className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition shadow-sm active:scale-95 cursor-pointer"
+            title="Gerar Resumo Executivo / Fechamento de Caixa para WhatsApp"
+          >
+            <MessageSquare className="w-4 h-4" />
+            <span>Resumo WhatsApp</span>
           </button>
         </div>
       </div>
@@ -410,13 +566,15 @@ export const CashFlowReports: React.FC = () => {
 
                 <button
                   onClick={() => {
-                    if (confirm('Deseja realmente fechar o caixa do turno atual?')) {
-                      closeCurrentShift();
-                    }
+                    setActualCountedCash(expectedDrawerCash.toFixed(2));
+                    setShiftClosedJustNow(false);
+                    setShowWhatsAppSummaryModal(true);
                   }}
-                  className="px-3 py-1.5 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs font-bold transition shadow-sm"
+                  id="btn-close-shift-open-modal"
+                  className="px-3.5 py-1.5 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs font-bold transition shadow-sm flex items-center gap-1.5 active:scale-95"
                 >
-                  Fechar Caixa
+                  <Lock className="w-3.5 h-3.5" />
+                  <span>Fechar Caixa</span>
                 </button>
               </>
             ) : (
@@ -693,6 +851,250 @@ export const CashFlowReports: React.FC = () => {
         </div>
       )}
 
+      {/* WhatsApp Executive Summary & Shift Closing Modal */}
+      {showWhatsAppSummaryModal && (
+        <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 z-50 animate-in fade-in duration-200">
+          <div className="bg-slate-900 border border-emerald-500/40 rounded-2xl p-4 sm:p-6 max-w-lg w-full shadow-2xl space-y-4 max-h-[92vh] overflow-y-auto">
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-emerald-500/20 text-emerald-400 rounded-xl">
+                  <MessageSquare className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm sm:text-base font-extrabold text-white">
+                    {isShiftOpen ? 'Fechamento de Caixa & Resumo WhatsApp' : 'Resumo Executivo do Caixa'}
+                  </h3>
+                  <p className="text-[11px] text-slate-400">
+                    {activeCantina.name} • {selectedDate === 'todas' ? 'Hoje' : selectedDate.split('-').reverse().join('/')}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowWhatsAppSummaryModal(false)}
+                className="text-slate-400 hover:text-white p-1 rounded-lg transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* If shift was just closed, show confirmation banner */}
+            {shiftClosedJustNow && (
+              <div className="p-3 bg-emerald-950/50 border border-emerald-700/60 rounded-xl text-xs text-emerald-300 flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                <span>Caixa do turno fechado com sucesso! Agora envie o resumo ao dono/administrador.</span>
+              </div>
+            )}
+
+            {/* Quick Metrics Grid */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
+              <div className="bg-slate-950 p-2.5 rounded-xl border border-slate-800">
+                <span className="text-[10px] uppercase font-bold text-slate-400 block">Total Vendas:</span>
+                <span className="text-sm font-black text-amber-400 font-mono-num">
+                  R$ {totalSalesDay.toFixed(2)}
+                </span>
+                <span className="text-[10px] text-slate-400 block mt-0.5">{filteredSales.length} cupons</span>
+              </div>
+
+              <div className="bg-slate-950 p-2.5 rounded-xl border border-slate-800">
+                <span className="text-[10px] uppercase font-bold text-slate-400 block">Vendas Dinheiro:</span>
+                <span className="text-sm font-black text-white font-mono-num">
+                  R$ {methodTotals.dinheiro.toFixed(2)}
+                </span>
+                <span className="text-[10px] text-slate-400 block mt-0.5">Espécie</span>
+              </div>
+
+              <div className="bg-slate-950 p-2.5 rounded-xl border border-slate-800">
+                <span className="text-[10px] uppercase font-bold text-slate-400 block">Vendas no PIX:</span>
+                <span className="text-sm font-black text-emerald-400 font-mono-num">
+                  R$ {methodTotals.pix.toFixed(2)}
+                </span>
+                <span className="text-[10px] text-slate-400 block mt-0.5">Conta bancária</span>
+              </div>
+
+              <div className="bg-slate-950 p-2.5 rounded-xl border border-slate-800">
+                <span className="text-[10px] uppercase font-bold text-slate-400 block">Vendas A Prazo:</span>
+                <span className="text-sm font-black text-amber-300 font-mono-num">
+                  R$ {(methodTotals.a_prazo || 0).toFixed(2)}
+                </span>
+                <span className="text-[10px] text-slate-400 block mt-0.5">Fiado</span>
+              </div>
+
+              <div className="bg-slate-950 p-2.5 rounded-xl border border-slate-800">
+                <span className="text-[10px] uppercase font-bold text-slate-400 block">Lucro Bruto Est.:</span>
+                <span className="text-sm font-black text-emerald-400 font-mono-num">
+                  R$ {totalProfitDay.toFixed(2)}
+                </span>
+                <span className="text-[10px] text-slate-400 block mt-0.5">{profitMarginPercent.toFixed(1)}% margem</span>
+              </div>
+
+              <div className="bg-slate-950 p-2.5 rounded-xl border border-amber-500/40">
+                <span className="text-[10px] uppercase font-extrabold text-amber-400 block">Gaveta Esperada:</span>
+                <span className="text-sm font-black text-amber-400 font-mono-num">
+                  R$ {expectedDrawerCash.toFixed(2)}
+                </span>
+                <span className="text-[10px] text-amber-300/80 block mt-0.5">Físico esperado</span>
+              </div>
+            </div>
+
+            {/* Fiados pending callout */}
+            <div className="bg-slate-950 border border-slate-800 p-3 rounded-xl flex items-center justify-between text-xs">
+              <div>
+                <span className="text-slate-400 block text-[11px]">Total Pendente na Caderneta de Fiados:</span>
+                <span className="text-base font-extrabold text-amber-400 font-mono-num">
+                  R$ {totalPendingFiados.toFixed(2)}
+                </span>
+              </div>
+              <div className="text-right">
+                <span className="px-2.5 py-1 bg-amber-500/10 text-amber-300 border border-amber-500/30 rounded-lg text-[10px] font-bold font-mono-num">
+                  {debtorsCount} devedores
+                </span>
+              </div>
+            </div>
+
+            {/* Drawer Count / Fechamento section if shift is open */}
+            {isShiftOpen && !shiftClosedJustNow && (
+              <div className="bg-slate-950/90 border border-slate-800 rounded-xl p-3.5 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-white flex items-center gap-1.5">
+                    <Lock className="w-3.5 h-3.5 text-rose-400" />
+                    <span>Conferência de Fechamento do Turno</span>
+                  </span>
+                  <span className="text-[10px] text-slate-400 font-mono-num">
+                    Esperado: R$ {expectedDrawerCash.toFixed(2)}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-300 mb-1">
+                      Dinheiro Contado na Gaveta (R$):
+                    </label>
+                    <input
+                      type="text"
+                      value={actualCountedCash}
+                      onChange={(e) => setActualCountedCash(e.target.value)}
+                      placeholder={expectedDrawerCash.toFixed(2)}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white font-mono-num focus:outline-none focus:border-amber-400"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-300 mb-1">
+                      Resultado da Conferência:
+                    </label>
+                    <div className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-xs font-mono-num flex items-center gap-1.5">
+                      {(() => {
+                        const actualNum = parseFloat(actualCountedCash.replace(',', '.')) || expectedDrawerCash;
+                        const diff = Math.round((actualNum - expectedDrawerCash) * 100) / 100;
+                        if (diff === 0) {
+                          return <span className="text-emerald-400 font-bold flex items-center gap-1"><Check className="w-3.5 h-3.5" /> Exato (R$ 0,00)</span>;
+                        } else if (diff > 0) {
+                          return <span className="text-blue-400 font-bold">+ R$ {diff.toFixed(2)} (Sobra)</span>;
+                        } else {
+                          return <span className="text-rose-400 font-bold">- R$ {Math.abs(diff).toFixed(2)} (Falta)</span>;
+                        }
+                      })()}
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-300 mb-1">
+                    Observações do Fechamento (opcional):
+                  </label>
+                  <input
+                    type="text"
+                    value={shiftClosingNotes}
+                    onChange={(e) => setShiftClosingNotes(e.target.value)}
+                    placeholder="Ex: Turno encerrado sem divergências"
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-amber-400"
+                  />
+                </div>
+
+                <div className="pt-1">
+                  <button
+                    type="button"
+                    onClick={handleExecuteShiftClose}
+                    className="w-full py-2.5 bg-rose-600 hover:bg-rose-500 text-white font-black text-xs rounded-xl shadow-md transition flex items-center justify-center gap-2 active:scale-98 cursor-pointer"
+                  >
+                    <Lock className="w-3.5 h-3.5" />
+                    <span>Concluir Fechamento do Caixa & Travar Turno</span>
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Destination WhatsApp Phone */}
+            <div className="space-y-1">
+              <label className="block text-xs font-semibold text-slate-300 flex items-center justify-between">
+                <span>WhatsApp do Destinatário (Dono / Administrador):</span>
+                <span className="text-[10px] text-slate-500">DDD + Número</span>
+              </label>
+              <div className="relative">
+                <Smartphone className="w-4 h-4 absolute left-3 top-2.5 text-slate-500" />
+                <input
+                  type="text"
+                  value={whatsappPhone}
+                  onChange={(e) => setWhatsappPhone(e.target.value)}
+                  placeholder="Ex: 83988887777 ou deixe em branco para escolher contato"
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-400 font-mono-num"
+                />
+              </div>
+            </div>
+
+            {/* WhatsApp Text Preview (Collapsible / Readable) */}
+            <div className="space-y-1">
+              <span className="text-[11px] font-semibold text-slate-400 block">
+                Prévia da Mensagem Formatada:
+              </span>
+              <pre className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-[11px] text-slate-300 whitespace-pre-wrap font-mono max-h-36 overflow-y-auto leading-relaxed">
+                {generateExecutiveSummaryText()}
+              </pre>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex flex-wrap items-center justify-end gap-2 pt-2 border-t border-slate-800">
+              <button
+                type="button"
+                onClick={() => setShowWhatsAppSummaryModal(false)}
+                className="px-3.5 py-2 text-xs text-slate-400 hover:text-white rounded-xl transition"
+              >
+                Fechar
+              </button>
+
+              <button
+                type="button"
+                onClick={handleCopySummary}
+                className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-bold text-xs rounded-xl transition flex items-center gap-1.5 active:scale-95 cursor-pointer"
+              >
+                {copiedWhatsAppText ? (
+                  <>
+                    <Check className="w-4 h-4 text-emerald-400" />
+                    <span className="text-emerald-400">Copiado!</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy className="w-4 h-4" />
+                    <span>Copiar Texto</span>
+                  </>
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={handleSendWhatsApp}
+                className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs rounded-xl shadow-lg transition flex items-center gap-1.5 active:scale-95 cursor-pointer"
+              >
+                <Share2 className="w-4 h-4" />
+                <span>Enviar pelo WhatsApp</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Re-print receipt modal */}
       {reprintSale && (
         <ReceiptModal
@@ -701,6 +1103,13 @@ export const CashFlowReports: React.FC = () => {
           onClose={() => setReprintSale(null)}
         />
       )}
+
+      {/* Human-readable report & print modal */}
+      <ReportModal
+        isOpen={showReportModal}
+        onClose={() => setShowReportModal(false)}
+        cantinaFallback={activeCantina}
+      />
     </div>
   );
 };

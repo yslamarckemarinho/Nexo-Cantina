@@ -20,8 +20,16 @@ import {
   Image as ImageIcon,
   User,
   Trash2,
-  Edit3
+  Edit3,
+  Database,
+  ShieldCheck,
+  Clock,
+  Printer,
+  FileText,
+  Code2
 } from 'lucide-react';
+import { AutoBackupModal } from './AutoBackupModal';
+import { ReportModal } from './ReportModal';
 
 export const BackupSettingsModal: React.FC = () => {
   const { 
@@ -33,11 +41,15 @@ export const BackupSettingsModal: React.FC = () => {
     restoreFromJSON, 
     operatorName,
     loadStarterProductsToActiveCantina,
-    resetSystemToZero
+    resetSystemToZero,
+    autoBackupSnapshots,
+    triggerManualBackup
   } = useCantina();
 
   if (!activeCantina) return null;
 
+  const [showAutoBackupModal, setShowAutoBackupModal] = useState(false);
+  const [showReportModal, setShowReportModal] = useState(false);
   const [pixKey, setPixKey] = useState(activeCantina.pixKey || '');
   const [pixReceiver, setPixReceiver] = useState(activeCantina.pixReceiverName || '');
   const [schoolName, setSchoolName] = useState(activeCantina.schoolName || '');
@@ -531,14 +543,76 @@ export const BackupSettingsModal: React.FC = () => {
         </div>
       </form>
 
-      {/* 4. Exportar Cópias Locais (Excel & JSON) & Restaurar */}
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-5 shadow-md space-y-4">
-        <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">
-          Exportar Cópias Locais (Excel & Backup)
-        </h3>
+      {/* 4. Central de Backup Automático & Nuvem (Snapshots) */}
+      <div className="bg-gradient-to-br from-slate-900 via-slate-900 to-blue-950/40 border border-blue-500/30 rounded-2xl p-4 sm:p-5 shadow-lg space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 bg-blue-500/20 text-blue-400 rounded-xl border border-blue-500/30">
+              <Database className="w-6 h-6" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="font-extrabold text-white text-sm sm:text-base">
+                  Backup Automático & Proteção em Nuvem
+                </h3>
+                <span className="bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[10px] px-2 py-0.5 rounded-full font-black">
+                  ATIVO
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-400 mt-0.5">
+                Snapshots automáticos nos finais de turno (às 11:00 e às 17:00) e a cada fechamento de caixa.
+              </p>
+            </div>
+          </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          {/* Planilha Excel */}
+          <button
+            type="button"
+            id="open-autobackup-center-btn"
+            onClick={() => setShowAutoBackupModal(true)}
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-black text-xs rounded-xl shadow-md transition flex items-center gap-2 active:scale-95 cursor-pointer"
+          >
+            <Clock className="w-4 h-4" />
+            <span>Gerenciar Snapshots ({autoBackupSnapshots.length})</span>
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-1 text-xs">
+          <div className="bg-slate-950/80 border border-slate-800 rounded-xl p-2.5">
+            <span className="text-[10px] text-slate-400 block font-medium">Último Ponto Salvo</span>
+            <span className="text-emerald-400 font-bold block mt-0.5">
+              {activeCantina.lastAutoBackupAt || activeCantina.lastBackupAt 
+                ? new Date(activeCantina.lastAutoBackupAt || activeCantina.lastBackupAt!).toLocaleTimeString('pt-BR') 
+                : 'Salvo recentemente'}
+            </span>
+          </div>
+
+          <div className="bg-slate-950/80 border border-slate-800 rounded-xl p-2.5">
+            <span className="text-[10px] text-slate-400 block font-medium">Horários por Turno</span>
+            <span className="text-amber-300 font-bold block mt-0.5">
+              11:00 (Manhã) e 17:00 (Tarde)
+            </span>
+          </div>
+
+          <div className="bg-slate-950/80 border border-slate-800 rounded-xl p-2.5">
+            <span className="text-[10px] text-slate-400 block font-medium">Histórico Disponível</span>
+            <span className="text-cyan-300 font-bold block mt-0.5">
+              {autoBackupSnapshots.length} pontos recuperáveis
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* 5. Exportar Cópias Locais (Excel, PDF & Backup) & Restaurar */}
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-5 shadow-md space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+            Exportar Dados em Linguagem Humana (Excel & PDF)
+          </h3>
+          <span className="text-[11px] text-slate-500">Documentos legíveis para operadores</span>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          {/* Card 1: Planilha Excel */}
           <div className="bg-slate-950 border border-slate-800 rounded-xl p-4 flex flex-col justify-between space-y-3">
             <div className="flex items-start gap-3">
               <div className="p-2 bg-emerald-500/20 text-emerald-400 rounded-lg flex-shrink-0">
@@ -547,7 +621,7 @@ export const BackupSettingsModal: React.FC = () => {
               <div>
                 <h4 className="font-bold text-white text-xs sm:text-sm">Planilha Excel (.CSV)</h4>
                 <p className="text-[11px] text-slate-400 mt-0.5">
-                  Exporta todas as vendas e fiados organizados em colunas com data e hora.
+                  Abre no Excel com acentuação e colunas separadas: produtos, estoque, vendas e fiados.
                 </p>
               </div>
             </div>
@@ -556,23 +630,48 @@ export const BackupSettingsModal: React.FC = () => {
               type="button"
               id="export-csv-btn"
               onClick={exportSalesCSV}
-              className="w-full py-2 bg-slate-800 hover:bg-slate-700 text-emerald-300 font-bold text-xs rounded-lg transition border border-slate-700 flex items-center justify-center gap-1.5"
+              className="w-full py-2 bg-emerald-950/80 hover:bg-emerald-900 text-emerald-300 font-bold text-xs rounded-lg transition border border-emerald-700/60 flex items-center justify-center gap-1.5 cursor-pointer"
             >
               <Download className="w-3.5 h-3.5" />
-              <span>Baixar Planilha (.CSV)</span>
+              <span>Baixar Planilha Excel</span>
             </button>
           </div>
 
-          {/* Backup Completo JSON */}
+          {/* Card 2: Relatório PDF / Impressão */}
           <div className="bg-slate-950 border border-slate-800 rounded-xl p-4 flex flex-col justify-between space-y-3">
             <div className="flex items-start gap-3">
-              <div className="p-2 bg-blue-500/20 text-cyan-400 rounded-lg flex-shrink-0">
-                <FileJson className="w-5 h-5" />
+              <div className="p-2 bg-blue-500/20 text-blue-400 rounded-lg flex-shrink-0">
+                <Printer className="w-5 h-5" />
               </div>
               <div>
-                <h4 className="font-bold text-white text-xs sm:text-sm">Backup Completo (.JSON)</h4>
+                <h4 className="font-bold text-white text-xs sm:text-sm">Relatório PDF / Impressão</h4>
                 <p className="text-[11px] text-slate-400 mt-0.5">
-                  Cópia de segurança salva em arquivo contendo produtos, clientes e histórico.
+                  Documento visual formatado para A4 com resumo de caixa, vendas e campo para assinatura.
+                </p>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              id="view-pdf-report-btn"
+              onClick={() => setShowReportModal(true)}
+              className="w-full py-2 bg-blue-950/80 hover:bg-blue-900 text-blue-300 font-bold text-xs rounded-lg transition border border-blue-700/60 flex items-center justify-center gap-1.5 cursor-pointer"
+            >
+              <FileText className="w-3.5 h-3.5" />
+              <span>Visualizar / Salvar PDF</span>
+            </button>
+          </div>
+
+          {/* Card 3: Cópia Técnica JSON */}
+          <div className="bg-slate-950 border border-slate-800 rounded-xl p-4 flex flex-col justify-between space-y-3">
+            <div className="flex items-start gap-3">
+              <div className="p-2 bg-purple-500/20 text-purple-400 rounded-lg flex-shrink-0">
+                <Code2 className="w-5 h-5" />
+              </div>
+              <div>
+                <h4 className="font-bold text-white text-xs sm:text-sm">Cópia Técnica (.JSON)</h4>
+                <p className="text-[11px] text-slate-400 mt-0.5">
+                  Arquivo de código usado exclusivamente para restaurar o sistema em caso de troca de computador.
                 </p>
               </div>
             </div>
@@ -581,10 +680,10 @@ export const BackupSettingsModal: React.FC = () => {
               type="button"
               id="export-json-btn"
               onClick={exportBackupJSON}
-              className="w-full py-2 bg-slate-800 hover:bg-slate-700 text-cyan-300 font-bold text-xs rounded-lg transition border border-slate-700 flex items-center justify-center gap-1.5"
+              className="w-full py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs rounded-lg transition border border-slate-700 flex items-center justify-center gap-1.5 cursor-pointer"
             >
               <Download className="w-3.5 h-3.5" />
-              <span>Baixar Backup (.JSON)</span>
+              <span>Baixar Cópia Técnica</span>
             </button>
           </div>
         </div>
@@ -632,6 +731,17 @@ export const BackupSettingsModal: React.FC = () => {
           </div>
         )}
       </div>
+
+      <AutoBackupModal
+        isOpen={showAutoBackupModal}
+        onClose={() => setShowAutoBackupModal(false)}
+      />
+
+      <ReportModal
+        isOpen={showReportModal}
+        onClose={() => setShowReportModal(false)}
+        cantinaFallback={activeCantina}
+      />
     </div>
   );
 };

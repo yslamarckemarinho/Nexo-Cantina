@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { useCantina } from '../context/CantinaContext';
 import { Customer, DebtItem, PaymentMethod } from '../types';
 import { WhatsAppModal } from './WhatsAppModal';
+import { printCustomerStatement } from '../utils/printReceipt';
 import { 
   Users, 
   Search, 
@@ -27,7 +28,8 @@ import {
   ArrowDownCircle,
   HandCoins,
   ShoppingCart,
-  ArrowRight
+  ArrowRight,
+  Printer
 } from 'lucide-react';
 
 export const CustomerFiados: React.FC = () => {

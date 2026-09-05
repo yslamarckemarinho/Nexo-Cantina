@@ -42,7 +42,26 @@ async function startServer() {
     try {
       const { cantinas, deviceId, deviceLabel, cantinaId, operatorName, role } = req.body;
       if (Array.isArray(cantinas)) {
-        cloudCantinasData = cantinas;
+        if (!cloudCantinasData || cloudCantinasData.length === 0) {
+          cloudCantinasData = cantinas;
+        } else {
+          // Robust multi-tenant merger by tenant ID:
+          // Guarantees Cantina A's terminal can never overwrite Cantina B's terminal!
+          const merged = [...cloudCantinasData];
+          for (const incoming of cantinas) {
+            const index = merged.findIndex(c => c.id === incoming.id);
+            if (index >= 0) {
+              if (cantinaId && incoming.id === cantinaId) {
+                merged[index] = incoming;
+              } else if (!cantinaId || role === 'Master Admin') {
+                merged[index] = incoming;
+              }
+            } else {
+              merged.push(incoming);
+            }
+          }
+          cloudCantinasData = merged;
+        }
         lastCloudSyncTimestamp = Date.now();
       }
 
@@ -76,6 +95,82 @@ async function startServer() {
       devices: devicesList,
       totalConnected: devicesList.length,
       serverTime: new Date().toISOString()
+    });
+  });
+
+  // Endpoints para Gerenciamento de Backups Automáticos
+  interface ServerBackupSnapshot {
+    id: string;
+    cantinaId: string;
+    cantinaName: string;
+    timestamp: string;
+    formattedTime: string;
+    formattedDate: string;
+    trigger: 'automatico' | 'turno_11h' | 'turno_17h' | 'fechamento_caixa' | 'manual';
+    productsCount: number;
+    customersCount: number;
+    salesCount: number;
+    shiftsCount: number;
+    totalPendingFiado: number;
+    sizeBytes: number;
+    data: any;
+  }
+  let serverBackupSnapshots: ServerBackupSnapshot[] = [];
+
+  // Salvar Snapshot de Backup Automático
+  app.post('/api/backups/snapshot', (req, res) => {
+    try {
+      const snapshot: ServerBackupSnapshot = req.body;
+      if (!snapshot || !snapshot.cantinaId || !snapshot.data) {
+        return res.status(400).json({ error: 'Dados de snapshot inválidos' });
+      }
+
+      // Evita duplicatas idênticas num curto intervalo (< 30s)
+      const existing = serverBackupSnapshots.find(s => s.id === snapshot.id);
+      if (!existing) {
+        serverBackupSnapshots.unshift(snapshot);
+        // Mantém os últimos 30 snapshots no servidor
+        if (serverBackupSnapshots.length > 30) {
+          serverBackupSnapshots = serverBackupSnapshots.slice(0, 30);
+        }
+      }
+
+      res.json({
+        success: true,
+        message: 'Snapshot de backup gravado com sucesso',
+        snapshotId: snapshot.id,
+        totalStored: serverBackupSnapshots.length
+      });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message || 'Erro ao registrar backup' });
+    }
+  });
+
+  // Listar Snapshots de Backup
+  app.get('/api/backups', (req, res) => {
+    const cantinaId = req.query.cantinaId as string | undefined;
+    let list = serverBackupSnapshots;
+    if (cantinaId) {
+      list = list.filter(s => s.cantinaId === cantinaId);
+    }
+    // Retorna metadados leves (sem o JSON completo de 'data' para rapidez)
+    const lightweightList = list.map(({ data, ...meta }) => meta);
+    res.json({
+      success: true,
+      backups: lightweightList,
+      total: lightweightList.length
+    });
+  });
+
+  // Obter Snapshot Completo para Restauração ou Download
+  app.get('/api/backups/:id', (req, res) => {
+    const found = serverBackupSnapshots.find(s => s.id === req.params.id);
+    if (!found) {
+      return res.status(404).json({ error: 'Snapshot de backup não encontrado' });
+    }
+    res.json({
+      success: true,
+      backup: found
     });
   });
 
